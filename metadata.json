@@ -1,0 +1,6 @@
+{
+  "name": "Duo Code Gate",
+  "description": "Duolingo-styled clean code entry gate requiring code ty1111 with strict security validation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
