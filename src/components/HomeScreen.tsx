@@ -6,7 +6,9 @@ import {
   VolumeX, 
   Sparkles, 
   CheckCircle2, 
-  ArrowRight
+  ArrowRight,
+  Settings,
+  User
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { isDailyCompletedToday, getNextResetTimeString } from '../utils/storage';
@@ -17,6 +19,7 @@ interface HomeScreenProps {
   onStartPractice: () => void;
   onStartDaily: () => void;
   onToggleSound: () => void;
+  onOpenProfile: () => void;
   soundEnabled: boolean;
 }
 
@@ -25,6 +28,7 @@ export function HomeScreen({
   onStartPractice,
   onStartDaily,
   onToggleSound,
+  onOpenProfile,
   soundEnabled,
 }: HomeScreenProps) {
   const [dailyDone, setDailyDone] = useState<boolean>(false);
@@ -44,7 +48,7 @@ export function HomeScreen({
 
   return (
     <div className="w-full max-w-md mx-auto px-4 py-8">
-      {/* Top Header: ⚡️ : (数) on Left */}
+      {/* Top Header: ⚡️ : (数) on Left, Profile & Settings on Right */}
       <header className="flex items-center justify-between mb-8 pb-4 border-b-2 border-[#E5E5E5]">
         {/* ⚡️ : Count */}
         <div 
@@ -60,7 +64,7 @@ export function HomeScreen({
           </div>
         </div>
 
-        {/* Right side: Streak & Sound */}
+        {/* Right side: Streak & Sound & Profile Settings */}
         <div className="flex items-center gap-2">
           {stats.streak > 0 && (
             <div className="flex items-center gap-1 bg-[#F7F7F7] border-2 border-[#E5E5E5] px-3 py-1.5 rounded-2xl text-xs font-black text-[#FF9600]">
@@ -69,12 +73,13 @@ export function HomeScreen({
             </div>
           )}
 
+          {/* Sound Toggle */}
           <button
             onClick={() => {
               audio.playTap();
               onToggleSound();
             }}
-            className="w-10 h-10 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5] flex items-center justify-center text-[#777777] hover:text-[#3C3C3C] transition-all"
+            className="w-10 h-10 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5] flex items-center justify-center text-[#777777] hover:text-[#3C3C3C] transition-all cursor-pointer"
             title="音声効果ON/OFF"
           >
             {soundEnabled ? (
@@ -83,20 +88,49 @@ export function HomeScreen({
               <VolumeX className="w-5 h-5 text-[#AFAFAF]" />
             )}
           </button>
+
+          {/* Profile & Icon Settings Button */}
+          <button
+            id="profile-settings-btn"
+            onClick={() => {
+              audio.playTap();
+              onOpenProfile();
+            }}
+            className="h-10 px-3 rounded-2xl bg-[#F7F7F7] hover:bg-[#EBF7FD] border-2 border-[#E5E5E5] hover:border-[#1CB0F6] flex items-center gap-2 transition-all cursor-pointer group"
+            title="プロフィール設定（名前・アイコン変更）"
+          >
+            {/* Custom Avatar Thumbnail or Default Icon */}
+            <div className="w-6 h-6 rounded-full overflow-hidden border border-[#D0D0D0] bg-white flex items-center justify-center shrink-0">
+              {stats.avatarUrl ? (
+                <img 
+                  src={stats.avatarUrl} 
+                  alt="avatar" 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <User className="w-4 h-4 text-[#58CC02]" />
+              )}
+            </div>
+            <span className="text-xs font-black text-[#3C3C3C] max-w-[80px] truncate hidden sm:inline">
+              {stats.userName || '会員'}
+            </span>
+            <Settings className="w-4 h-4 text-[#AFAFAF] group-hover:text-[#1CB0F6] group-hover:rotate-45 transition-all" />
+          </button>
         </div>
       </header>
 
-      {/* App Branding */}
+      {/* App Branding & User Greeting */}
       <div className="text-center mb-10">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF7FD] border border-[#BDE3F8] text-[#1CB0F6] text-xs font-black mb-3">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>英語学習 (英検4〜5級・チャレンジ)</span>
+          <span>英語学習 (英検4〜5級・並べ替え)</span>
         </div>
         <h1 className="text-4xl sm:text-5xl font-black text-[#3C3C3C] tracking-tight">
           うおリンゴ
         </h1>
         <p className="text-sm font-bold text-[#777777] mt-1">
-          問題を解いて⚡️コインをあつめよう！
+          {stats.userName ? `ようこそ、${stats.userName}さん！` : '問題を解いて⚡️コインをあつめよう！'}
         </p>
       </div>
 
@@ -109,7 +143,7 @@ export function HomeScreen({
             audio.playTap();
             onStartPractice();
           }}
-          className="duo-btn duo-btn-green w-full p-5 rounded-2xl flex items-center justify-between shadow-xs group"
+          className="duo-btn duo-btn-green w-full p-5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
         >
           <div className="flex items-center gap-4 text-left">
             <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
@@ -141,7 +175,7 @@ export function HomeScreen({
             onStartDaily();
           }}
           disabled={dailyDone}
-          className={`w-full p-5 rounded-2xl flex items-center justify-between text-left transition-all ${
+          className={`w-full p-5 rounded-2xl flex items-center justify-between text-left transition-all cursor-pointer ${
             dailyDone
               ? 'duo-btn duo-btn-gray opacity-70 cursor-not-allowed'
               : 'duo-btn duo-btn-blue text-white shadow-xs group'

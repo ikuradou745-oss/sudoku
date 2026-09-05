@@ -1,6 +1,6 @@
 import { UserStats } from '../types';
 
-const STORAGE_KEY = 'uolingo_user_stats_v1';
+const STORAGE_KEY = 'uolingo_user_stats_v2';
 
 export function getStoredUserStats(): UserStats {
   try {
@@ -13,6 +13,8 @@ export function getStoredUserStats(): UserStats {
         lastDailyDate: parsed.lastDailyDate || null,
         completedSessions: parsed.completedSessions || 0,
         perfectSessions: parsed.perfectSessions || 0,
+        userName: parsed.userName || 'うおリンゴ会員',
+        avatarUrl: parsed.avatarUrl || null,
       };
     }
   } catch {
@@ -24,6 +26,8 @@ export function getStoredUserStats(): UserStats {
     lastDailyDate: null,
     completedSessions: 0,
     perfectSessions: 0,
+    userName: 'うおリンゴ会員',
+    avatarUrl: null,
   };
 }
 
@@ -36,8 +40,6 @@ export function saveUserStats(stats: UserStats): void {
 }
 
 // Get the current daily cycle identifier based on 9:00 AM cutoff.
-// If current time is before 9:00 AM, it belongs to yesterday's cycle.
-// If current time is 9:00 AM or after, it belongs to today's cycle.
 export function getCurrentDailyCycleKey(now: Date = new Date()): string {
   const cycleDate = new Date(now.getTime());
   if (cycleDate.getHours() < 9) {
@@ -57,7 +59,7 @@ export function isDailyCompletedToday(lastDailyDate: string | null): boolean {
   return lastDailyDate === currentCycle;
 }
 
-// Get string like "明日 09:00" or time until next 9:00 AM
+// Get string like "XX時間XX分後 (09:00)"
 export function getNextResetTimeString(): string {
   const now = new Date();
   const nextReset = new Date(now.getTime());

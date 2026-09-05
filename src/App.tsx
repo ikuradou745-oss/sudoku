@@ -3,6 +3,7 @@ import { CodeEntryGate } from './components/CodeEntryGate';
 import { UnderPreparationScreen } from './components/UnderPreparationScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { ModifierModal } from './components/ModifierModal';
+import { ProfileModal } from './components/ProfileModal';
 import { QuizSession } from './components/QuizSession';
 import { UserStats, Modifier, Question } from './types';
 import { QUESTION_BANK } from './data/questions';
@@ -23,6 +24,7 @@ export function App() {
 
   // Modals & Quiz Config
   const [showModifierModal, setShowModifierModal] = useState<boolean>(false);
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [activeModifiers, setActiveModifiers] = useState<Modifier[]>([]);
@@ -72,31 +74,21 @@ export function App() {
     setActiveModifiers(selectedMods);
     setQuizMode('practice');
 
-    const hasChallenge = selectedMods.some((m) => m.id === 'challengeMode' && m.active);
     const hasLonger = selectedMods.some((m) => m.id === 'longerSentences' && m.active);
     const hasDiffUp = selectedMods.some((m) => m.id === 'difficultyUp' && m.active);
 
-    let selectedQuestions: Question[] = [];
+    let pool = [...QUESTION_BANK];
 
-    if (hasChallenge) {
-      // Prioritize Challenge questions (3 to 4 challenge questions + 1 to 2 hard/long questions)
-      const challengePool = QUESTION_BANK.filter((q) => q.difficulty === 'challenge').sort(() => Math.random() - 0.5);
-      const otherPool = QUESTION_BANK.filter((q) => q.difficulty === '4kyu' || q.difficulty === 'long').sort(() => Math.random() - 0.5);
-      selectedQuestions = [...challengePool.slice(0, 3), ...otherPool.slice(0, 2)].sort(() => Math.random() - 0.5);
-    } else {
-      let pool = [...QUESTION_BANK];
-
-      if (hasDiffUp) {
-        pool = pool.filter((q) => q.difficulty === '4kyu' || q.difficulty === 'long' || q.difficulty === 'challenge');
-      }
-      if (hasLonger) {
-        const longQuestions = QUESTION_BANK.filter((q) => q.difficulty === 'long');
-        pool = [...longQuestions, ...pool];
-      }
-
-      // Shuffle and pick 5 questions
-      selectedQuestions = pool.sort(() => Math.random() - 0.5).slice(0, 5);
+    if (hasDiffUp) {
+      pool = pool.filter((q) => q.difficulty === '4kyu' || q.difficulty === 'long');
     }
+    if (hasLonger) {
+      const longQuestions = QUESTION_BANK.filter((q) => q.difficulty === 'long');
+      pool = [...longQuestions, ...pool];
+    }
+
+    // Shuffle and pick 5 questions
+    const selectedQuestions = pool.sort(() => Math.random() - 0.5).slice(0, 5);
 
     setQuizQuestions(selectedQuestions);
     setPhase('quiz');
@@ -107,12 +99,12 @@ export function App() {
     setQuizMode('daily');
     setActiveModifiers([]);
 
-    // Select 5 varied questions for the daily set (2 x 5kyu, 2 x 4kyu, 1 x challenge/long)
+    // Select 5 varied questions for the daily set (2 x 5kyu, 2 x 4kyu, 1 x long)
     const e5 = QUESTION_BANK.filter((q) => q.difficulty === '5kyu').sort(() => Math.random() - 0.5).slice(0, 2);
     const e4 = QUESTION_BANK.filter((q) => q.difficulty === '4kyu').sort(() => Math.random() - 0.5).slice(0, 2);
-    const challengeOrLong = QUESTION_BANK.filter((q) => q.difficulty === 'challenge' || q.difficulty === 'long').sort(() => Math.random() - 0.5).slice(0, 1);
+    const long = QUESTION_BANK.filter((q) => q.difficulty === 'long').sort(() => Math.random() - 0.5).slice(0, 1);
 
-    const dailySet = [...e5, ...e4, ...challengeOrLong].sort(() => Math.random() - 0.5);
+    const dailySet = [...e5, ...e4, ...long].sort(() => Math.random() - 0.5);
     setQuizQuestions(dailySet);
     setPhase('quiz');
   };
@@ -147,6 +139,16 @@ export function App() {
     setPhase('home');
   };
 
+  // Profile Save
+  const handleSaveProfile = (name: string, avatarDataUrl: string) => {
+    updateStats((prev) => ({
+      ...prev,
+      userName: name,
+      avatarUrl: avatarDataUrl,
+    }));
+    setShowProfileModal(false);
+  };
+
   // Developer / test gate reset button in footer if needed
   const handleRelockGate = () => {
     clearGateSession();
@@ -171,6 +173,7 @@ export function App() {
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
             onToggleSound={handleToggleSound}
+            onOpenProfile={() => setShowProfileModal(true)}
             soundEnabled={soundEnabled}
           />
         )}
@@ -192,6 +195,16 @@ export function App() {
             onStart={handleStartPracticeWithModifiers}
           />
         )}
+
+        {/* Profile & Icon Settings Modal */}
+        {showProfileModal && (
+          <ProfileModal
+            currentName={stats.userName || 'うおリンゴ会員'}
+            currentAvatar={stats.avatarUrl || null}
+            onSave={handleSaveProfile}
+            onClose={() => setShowProfileModal(false)}
+          />
+        )}
       </main>
 
       {/* Subtle Footer */}
@@ -201,7 +214,7 @@ export function App() {
             <span>うおリンゴ (Uolingo) © 英語学習</span>
             <button
               onClick={handleRelockGate}
-              className="text-[#D0D0D0] hover:text-[#777777] underline"
+              className="text-[#D0D0D0] hover:text-[#777777] underline cursor-pointer"
             >
               ゲートを再施錠
             </button>

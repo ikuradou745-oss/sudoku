@@ -8,8 +8,7 @@ import {
   Sparkles, 
   RotateCcw,
   ArrowRight,
-  Tv,
-  Crown
+  Tv
 } from 'lucide-react';
 import { Question, Modifier } from '../types';
 import { audio } from '../utils/audio';
@@ -74,13 +73,6 @@ export function QuizSession({
     } else {
       setAvailableWords([]);
       setSelectedWords([]);
-    }
-
-    // Auto-read audio if listening question
-    if (currentQ.type === 'listening' && currentQ.audioPrompt) {
-      setTimeout(() => {
-        audio.speakEnglish(currentQ.audioPrompt || currentQ.english);
-      }, 300);
     }
   }, [currentIndex, currentQ]);
 
@@ -156,8 +148,7 @@ export function QuizSession({
       audio.playCorrect();
       setIsCorrect(true);
       setIsAnswerChecked(true);
-      // Play speech
-      if (currentQ.audioPrompt || currentQ.english) {
+      if (currentQ.type !== 'order' && (currentQ.audioPrompt || currentQ.english)) {
         audio.speakEnglish(currentQ.audioPrompt || currentQ.english);
       }
     } else {
@@ -366,7 +357,7 @@ export function QuizSession({
             audio.playTap();
             onExit();
           }}
-          className="text-[#AFAFAF] hover:text-[#4B4B4B] font-black text-xl px-1"
+          className="text-[#AFAFAF] hover:text-[#4B4B4B] font-black text-xl px-1 cursor-pointer"
         >
           ✕
         </button>
@@ -409,34 +400,30 @@ export function QuizSession({
         id="question-card"
         className="duo-card p-6 sm:p-8 bg-white mb-6"
       >
-        {/* Question Type & Audio Header */}
+        {/* Question Type & (Optional) Audio Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            {currentQ.difficulty === 'challenge' && (
-              <span className="px-2.5 py-1 rounded-full text-xs font-black bg-[#FFF3D6] text-[#FF9600] border border-[#FFD966] flex items-center gap-1">
-                <Crown className="w-3.5 h-3.5 fill-[#FF9600]" />
-                チャレンジ難問
-              </span>
-            )}
             <span className="px-3 py-1 rounded-full text-xs font-black bg-[#E5E5E5] text-[#4B4B4B]">
-              {currentQ.type === 'order' && '語順並べ替え'}
+              {currentQ.type === 'order' && '自分で文を組み立てる (語順並べ替え)'}
               {currentQ.type === 'blank' && '空欄補充 (穴埋め)'}
               {currentQ.type === 'translate' && '英単語・意味選択'}
               {currentQ.type === 'dialogue' && '会話の応答'}
-              {currentQ.type === 'listening' && 'リスニング問題'}
             </span>
           </div>
 
-          <button
-            onClick={() => {
-              audio.playTap();
-              audio.speakEnglish(currentQ.audioPrompt || currentQ.english);
-            }}
-            className="p-2 rounded-xl bg-[#F7F7F7] border-2 border-[#E5E5E5] text-[#1CB0F6] hover:bg-[#EBF7FD] flex items-center gap-1 text-xs font-bold"
-          >
-            <Volume2 className="w-4 h-4" />
-            <span>音声を聴く</span>
-          </button>
+          {/* Do NOT show audio listening button for 'order' questions as requested */}
+          {currentQ.type !== 'order' && (
+            <button
+              onClick={() => {
+                audio.playTap();
+                audio.speakEnglish(currentQ.audioPrompt || currentQ.english);
+              }}
+              className="p-2 rounded-xl bg-[#F7F7F7] border-2 border-[#E5E5E5] text-[#1CB0F6] hover:bg-[#EBF7FD] flex items-center gap-1 text-xs font-bold"
+            >
+              <Volume2 className="w-4 h-4" />
+              <span>音声を聴く</span>
+            </button>
+          )}
         </div>
 
         {/* Japanese Prompt */}
@@ -451,14 +438,14 @@ export function QuizSession({
           </div>
         )}
 
-        {/* --- QUESTION TYPE: ORDER (語順並べ替え) --- */}
+        {/* --- QUESTION TYPE: ORDER (自分で文を組み立てる) --- */}
         {currentQ.type === 'order' && (
           <div className="space-y-6">
             {/* Target Assembly Area */}
             <div className="min-h-[64px] p-3 bg-[#F7F7F7] border-2 border-[#E5E5E5] border-dashed rounded-2xl flex flex-wrap gap-2 items-center">
               {selectedWords.length === 0 ? (
                 <span className="text-xs font-bold text-[#AFAFAF] mx-auto">
-                  下の単語をタップして正しい順番に並べてください
+                  下の単語をタップして正しい文を組み立ててください
                 </span>
               ) : (
                 selectedWords.map((word, idx) => (
@@ -474,7 +461,7 @@ export function QuizSession({
               )}
             </div>
 
-            {/* Available Word Bank */}
+            {/* Available Word Bank (5~6 words) */}
             <div className="flex flex-wrap justify-center gap-2.5 pt-2">
               {availableWords.map((word, idx) => (
                 <button
@@ -490,7 +477,7 @@ export function QuizSession({
           </div>
         )}
 
-        {/* --- QUESTION TYPE: MULTIPLE CHOICE (blank, translate, dialogue, listening) --- */}
+        {/* --- QUESTION TYPE: MULTIPLE CHOICE (blank, translate, dialogue) --- */}
         {currentQ.type !== 'order' && currentQ.choices && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {currentQ.choices.map((choice, idx) => {
