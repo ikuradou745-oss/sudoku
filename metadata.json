@@ -1,6 +1,6 @@
 {
-  "name": "Duo Code Gate",
-  "description": "Duolingo-styled clean code entry gate requiring code ty1111 with strict security validation.",
+  "name": "うおリンゴ (Uolingo)",
+  "description": "英検4~5級レベルの英語学習アプリ。学習モード、モディファイア、デイリーセット、⚡️報酬システムを搭載。",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

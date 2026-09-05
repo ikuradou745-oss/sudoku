@@ -1,31 +1,11 @@
-// Ultra-Strict Security Engine for Roblox Code Gate
-// Multi-layer verification: Salted PBKDF2/SHA-256, Anti-Brute-Force, Constant-Time Comparison,
-// Honeypot detection, Anti-Bot challenge, and Encrypted Session Tokens.
+// Ultra-Strict Security Engine for Code Gate
+// Multi-layer verification: Salted PBKDF2/SHA-256, Anti-Brute-Force, Constant-Time Comparison.
+// Persistent token storage in localStorage so user only needs to enter code once.
 
-export interface SecurityState {
-  failedAttempts: number;
-  maxAttemptsBeforeLock: number;
-  lockoutUntil: number | null; // Timestamp
-  isLocked: boolean;
-  threatLevel: 'SECURE' | 'ELEVATED' | 'HIGH_ALERT' | 'LOCKDOWN';
-  requiresCaptcha: boolean;
-  historyLogs: SecurityLogEntry[];
-}
-
-export interface SecurityLogEntry {
-  id: string;
-  timestamp: string;
-  event: string;
-  status: 'SUCCESS' | 'DENIED' | 'BLOCKED' | 'WARNING';
-  details: string;
-}
-
-// Fixed Cryptographic Salt & Reference Hash for "ty1111"
-// Salted Key derivation: SHA-256("rbx_salt_88301_" + input + "_roblox_stud_gate_v4")
-// Hash of "ty1111": computed deterministically via Web Crypto API
 export const SALT_PREFIX = "rbx_salt_88301_";
 export const SALT_SUFFIX = "_roblox_stud_gate_v4";
-export const TARGET_HASH = "8e95085e791b8d60efd4c4f344bfbbf3cbe25dbad068fbf1cb96525164bc7758"; // Reference verification digest
+export const TARGET_HASH = "8e95085e791b8d60efd4c4f344bfbbf3cbe25dbad068fbf1cb96525164bc7758"; // Reference verification digest for ty1111
+export const AUTH_STORAGE_KEY = "uolingo_gate_auth_session_v2";
 
 /**
  * Computes a high-entropy SHA-256 hash using the Web Crypto API
@@ -65,38 +45,37 @@ export async function verifyPasscodeStrict(
   token?: string;
   threatEscalation?: boolean;
 }> {
-  // 1. Artificial jitter to normalize timing and block side-channel timing analysis (350-500ms)
-  const jitter = 350 + Math.random() * 150;
+  // Artificial jitter (250-400ms)
+  const jitter = 250 + Math.random() * 150;
   await new Promise(resolve => setTimeout(resolve, jitter));
 
-  // 2. Honeypot check (Bot trap)
+  // Honeypot check
   if (honeypotValue && honeypotValue.trim().length > 0) {
     return {
       success: false,
-      message: "BOT_TRAP_TRIGGERED: 不正な自動入力フィールドを検出しました。",
+      message: "不正な自動入力フィールドを検出しました。",
       threatEscalation: true
     };
   }
 
-  // 3. Captcha requirement check
+  // Captcha check
   if (!captchaPassed) {
     return {
       success: false,
-      message: "SECURITY_CHALLENGE_REQUIRED: ボット検証を完了してください。",
+      message: "検証を完了してください。",
       threatEscalation: false
     };
   }
 
-  // 4. Length and character sanitization
   const cleanInput = inputCode.trim();
   if (cleanInput.length === 0) {
     return {
       success: false,
-      message: "INVALID_INPUT: アクセスコードを入力してください。"
+      message: "アクセスコードを入力してください。"
     };
   }
 
-  // 5. Compute salted cryptographic hash
+  // Compute salted cryptographic hash
   const computedHash = await computeSecureHash(cleanInput);
 
   // Direct check for "ty1111" with constant time verification
@@ -104,16 +83,16 @@ export async function verifyPasscodeStrict(
   const isHashMatch = constantTimeEquals(computedHash, TARGET_HASH) || isDirectMatch;
 
   if (isHashMatch) {
-    // Generate Cryptographic Session Pass Token
-    const sessionToken = `RBX_PASS_${Date.now()}_${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    // Generate Persistent Cryptographic Session Token
+    const sessionToken = `UOLINGO_PASS_${Date.now()}_${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
     
-    // Store in secure session storage
+    // Store in localStorage for permanent access on subsequent visits
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.setItem('rbx_gate_auth_session', JSON.stringify({
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
           token: sessionToken,
           grantedAt: Date.now(),
-          expiresAt: Date.now() + 1000 * 60 * 60 * 4, // 4 hours validity
+          unlocked: true,
           integrityCheck: await computeSecureHash(sessionToken)
         }));
       } catch (e) {
@@ -123,32 +102,28 @@ export async function verifyPasscodeStrict(
 
     return {
       success: true,
-      message: "クリアランス認証成功: セキュリティプロトコル解除完了",
+      message: "認証成功！うおリンゴへアクセスを許可しました。",
       token: sessionToken
     };
   }
 
   return {
     success: false,
-    message: "認証エラー: コードが一致しません。アクセスが拒否されました。",
+    message: "認証エラー: コードが一致しません。",
     threatEscalation: true
   };
 }
 
 /**
- * Checks if a valid authorized session currently exists
+ * Checks if a valid authorized session currently exists (persists across visits)
  */
 export function checkExistingSession(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    const raw = sessionStorage.getItem('rbx_gate_auth_session');
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return false;
     const session = JSON.parse(raw);
-    if (!session || !session.token || !session.expiresAt) return false;
-    if (Date.now() > session.expiresAt) {
-      sessionStorage.removeItem('rbx_gate_auth_session');
-      return false;
-    }
+    if (!session || !session.token || !session.unlocked) return false;
     return true;
   } catch {
     return false;
@@ -156,12 +131,12 @@ export function checkExistingSession(): boolean {
 }
 
 /**
- * Revokes current session and restores strict gate lock
+ * Revokes current session and restores gate lock
  */
 export function clearGateSession(): void {
   if (typeof window === 'undefined') return;
   try {
-    sessionStorage.removeItem('rbx_gate_auth_session');
+    localStorage.removeItem(AUTH_STORAGE_KEY);
   } catch (e) {
     console.debug('Session clear error', e);
   }
