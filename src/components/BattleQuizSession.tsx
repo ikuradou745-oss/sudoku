@@ -5,16 +5,17 @@ import {
   XCircle, 
   ArrowRight, 
   Zap, 
-  Medal, 
   Home, 
   Wifi, 
   Heart, 
-  Skull 
+  Skull,
+  Flag,
+  Sparkles
 } from 'lucide-react';
 import { BattleRoom, RoomPlayer, Question } from '../types';
 import { QUESTION_BANK } from '../data/questions';
 import { audio } from '../utils/audio';
-import { realtimeMultiplayer } from '../utils/multiplayer';
+import { realtimeMultiplayer, MultiplayerEvent } from '../utils/multiplayer';
 
 const TOTAL_BATTLE_QUESTIONS = 10;
 const INITIAL_LIVES = 3;
@@ -60,13 +61,15 @@ export function BattleQuizSession({
     }))
   );
 
-  // Match Result Podium State
+  // Match Result & Winner Clear state
   const [isMatchOver, setIsMatchOver] = useState<boolean>(false);
+  const [winnerInfo, setWinnerInfo] = useState<{ id: string; name: string; score: number } | null>(null);
   const [finalRankings, setFinalRankings] = useState<
-    Array<{ player: RoomPlayer; rank: number; reward: number; score: number; isKO: boolean }>
+    Array<{ player: RoomPlayer; rank: number; reward: number; score: number; isKO: boolean; isClearWinner: boolean }>
   >([]);
 
   const questionStartTimeRef = useRef<number>(Date.now());
+  const matchEndedRef = useRef<boolean>(false);
 
   // 1. Pick 10 deterministic questions using room seed & modifiers
   useEffect(() => {
@@ -96,13 +99,14 @@ export function BattleQuizSession({
     questionStartTimeRef.current = Date.now();
   }, [room.seed, room.modifiers]);
 
-  // 2. Real-time WebSocket synchronization & Bot simulation logic
+  // 2. Real-time WebSocket synchronization & Instant match-ending on clear
   useEffect(() => {
-    const unsubscribe = realtimeMultiplayer.subscribe((event) => {
+    const unsubscribe = realtimeMultiplayer.subscribe((event: MultiplayerEvent) => {
       if (event.type === 'LIVE_PROGRESS_UPDATE' && event.roomId === room.id) {
         const { playerId, progress, score, mistakes, lives, isKO: peerKO, finished } = event;
-        setPlayersState((prev) =>
-          prev.map((p) =>
+        
+        setPlayersState((prev) => {
+          const nextState = prev.map((p) =>
             p.id === playerId
               ? { 
                   ...p, 
@@ -114,37 +118,54 @@ export function BattleQuizSession({
                   finished 
                 }
               : p
-          )
-        );
+          );
+
+          // If a peer just cleared all 10 questions with lives remaining, finish match immediately!
+          if (progress >= TOTAL_BATTLE_QUESTIONS && !peerKO && !matchEndedRef.current) {
+            const peer = nextState.find((p) => p.id === playerId);
+            endMatchInstantly(playerId, peer?.name || '対戦相手', score, nextState);
+          }
+
+          return nextState;
+        });
+      }
+
+      if (event.type === 'MATCH_CLEARED_BY_WINNER' && event.roomId === room.id) {
+        if (!matchEndedRef.current) {
+          endMatchInstantly(event.winnerId, event.winnerName, event.winnerScore);
+        }
       }
     });
 
-    // If there are bot players in the room, simulate their answering progress & mistake rate
+    // Bot simulation logic
     const hasBots = room.players.some((p) => p.isBot);
     let botInterval: any = null;
 
     if (hasBots) {
       botInterval = setInterval(() => {
-        if (isMatchOver) return;
+        if (matchEndedRef.current) return;
 
         setPlayersState((prev) => {
+          let botWinner: RoomPlayer | null = null;
           let anyUpdated = false;
+
           const updated = prev.map((p) => {
             if (!p.isBot || p.finished || p.isKO) return p;
 
             const roll = Math.random();
-            if (roll > 0.45) {
+            if (roll > 0.40) {
               const currentProg = p.progress || 0;
               const nextProg = currentProg + 1;
-              const isBotCorrect = Math.random() > 0.18;
+              const isBotCorrect = Math.random() > 0.15;
               const currentLives = p.lives ?? INITIAL_LIVES;
               const nextLives = isBotCorrect ? currentLives : Math.max(0, currentLives - 1);
               const botKO = nextLives <= 0;
               const addedScore = isBotCorrect ? Math.floor(100 + Math.random() * 50) : 0;
-              const isFinished = botKO || nextProg >= TOTAL_BATTLE_QUESTIONS;
+              const isCleared = !botKO && nextProg >= TOTAL_BATTLE_QUESTIONS;
+              const isFinished = botKO || isCleared;
 
               anyUpdated = true;
-              return {
+              const updatedBot = {
                 ...p,
                 progress: nextProg,
                 score: (p.score || 0) + addedScore,
@@ -154,38 +175,107 @@ export function BattleQuizSession({
                 finished: isFinished,
                 finishTime: isFinished ? Date.now() : undefined,
               };
+
+              if (isCleared && !botWinner && !matchEndedRef.current) {
+                botWinner = updatedBot;
+              }
+
+              return updatedBot;
             }
             return p;
           });
 
+          if (botWinner && !matchEndedRef.current) {
+            const winner = botWinner as RoomPlayer;
+            setTimeout(() => {
+              endMatchInstantly(winner.id, winner.name, winner.score || 0, updated);
+            }, 500);
+          }
+
           return anyUpdated ? updated : prev;
         });
-      }, 2300);
+      }, 2000);
     }
 
     return () => {
       unsubscribe();
       if (botInterval) clearInterval(botInterval);
     };
-  }, [room.id, room.players, isMatchOver]);
+  }, [room.id, room.players]);
 
-  // Check if all players finished or KO'd
-  useEffect(() => {
-    if (isMatchOver) return;
+  // Handle instant match end when someone clears or all KO'd
+  const endMatchInstantly = (
+    winnerId: string,
+    winnerName: string,
+    winnerScore: number,
+    customPlayersState?: RoomPlayer[]
+  ) => {
+    if (matchEndedRef.current) return;
+    matchEndedRef.current = true;
+    setIsMatchOver(true);
+    setWinnerInfo({ id: winnerId, name: winnerName, score: winnerScore });
+    audio.playEnergyGet();
 
-    const allDone = playersState.every(
-      (p) => p.finished || p.isKO || (p.progress || 0) >= TOTAL_BATTLE_QUESTIONS
-    );
-    if (allDone && isMyFinished) {
-      calculateFinalRankings();
+    const currentList = customPlayersState || playersState;
+
+    // Calculate final rankings:
+    // 1. Cleared winner is 1st place.
+    // 2. Others sorted by questions progressed DESC, then score DESC.
+    // 3. KO'd players sorted by their score at KO time.
+    const sorted = [...currentList].sort((a, b) => {
+      if (a.id === winnerId) return -1;
+      if (b.id === winnerId) return 1;
+
+      // Both KO or both active:
+      if (a.isKO === b.isKO) {
+        if ((b.progress || 0) !== (a.progress || 0)) {
+          return (b.progress || 0) - (a.progress || 0); // further progress ranks higher
+        }
+        return (b.score || 0) - (a.score || 0); // higher score ranks higher
+      }
+
+      // Active player beats KO'd player
+      return a.isKO ? 1 : -1;
+    });
+
+    const totalBonusMultiplier = 1 + room.modifiers.reduce((acc, m) => acc + (m.bonusPercent / 100), 0);
+
+    const ranked = sorted.map((p, idx) => {
+      const rank = idx + 1;
+      let baseReward = 8;
+      if (rank === 1) baseReward = 45;
+      else if (rank === 2) baseReward = 28;
+      else if (rank === 3) baseReward = 16;
+
+      const totalReward = Math.round(baseReward * totalBonusMultiplier);
+
+      return {
+        player: p,
+        rank,
+        reward: totalReward,
+        score: p.score || 0,
+        isKO: !!p.isKO,
+        isClearWinner: p.id === winnerId,
+      };
+    });
+
+    setFinalRankings(ranked);
+
+    const myRankItem = ranked.find((r) => r.player.id === player.id);
+    if (myRankItem) {
+      onFinishBattle({
+        rank: myRankItem.rank,
+        reward: myRankItem.reward,
+        score: myRankItem.score,
+      });
     }
-  }, [playersState, isMyFinished, isMatchOver]);
+  };
 
   const currentQ = questions[currentIndex];
 
   // Word selection for 'order' type
   const handleToggleWord = (word: string, index: number) => {
-    if (isAnswerChecked || isKO || isMyFinished) return;
+    if (isAnswerChecked || isKO || isMyFinished || matchEndedRef.current) return;
     audio.playTap();
 
     const token = `${word}_${index}`;
@@ -198,14 +288,14 @@ export function BattleQuizSession({
   };
 
   const handleSelectChoice = (choice: string) => {
-    if (isAnswerChecked || isKO || isMyFinished) return;
+    if (isAnswerChecked || isKO || isMyFinished || matchEndedRef.current) return;
     audio.playTap();
     setSelectedChoice(choice);
   };
 
   // Submit Answer Check
   const handleCheckAnswer = () => {
-    if (!currentQ || isAnswerChecked || isKO || isMyFinished) return;
+    if (!currentQ || isAnswerChecked || isKO || isMyFinished || matchEndedRef.current) return;
 
     let userAns = '';
     if (currentQ.type === 'order') {
@@ -221,8 +311,7 @@ export function BattleQuizSession({
     setIsAnswerChecked(true);
 
     const elapsedSeconds = (Date.now() - questionStartTimeRef.current) / 1000;
-    // Speed bonus: max 150 points for fast answers
-    const speedBonus = Math.max(0, Math.floor((10 - elapsedSeconds) * 8));
+    const speedBonus = Math.max(0, Math.floor((10 - elapsedSeconds) * 10));
     const gainedPoints = correct ? 100 + speedBonus : 0;
 
     const nextScore = myScore + gainedPoints;
@@ -230,7 +319,8 @@ export function BattleQuizSession({
     const nextLives = correct ? myLives : Math.max(0, myLives - 1);
     const nextProgress = currentIndex + 1;
     const userIsKO = nextLives <= 0;
-    const isFinished = userIsKO || nextProgress >= questions.length;
+    const isUserCleared = !userIsKO && nextProgress >= TOTAL_BATTLE_QUESTIONS;
+    const isFinished = userIsKO || isUserCleared;
 
     setMyScore(nextScore);
     setMyMistakes(nextMistakes);
@@ -247,7 +337,7 @@ export function BattleQuizSession({
       setIsMyFinished(true);
     }
 
-    // Real-time broadcast to server & all room competitors
+    // Broadcast live progress
     realtimeMultiplayer.sendProgress(
       room.id,
       player.id,
@@ -259,34 +349,45 @@ export function BattleQuizSession({
       userIsKO
     );
 
-    // Update local state for me
-    setPlayersState((prev) =>
-      prev.map((p) =>
-        p.id === player.id
-          ? {
-              ...p,
-              progress: nextProgress,
-              score: nextScore,
-              mistakes: nextMistakes,
-              lives: nextLives,
-              isKO: userIsKO,
-              finished: isFinished,
-              finishTime: isFinished ? Date.now() : undefined,
-            }
-          : p
-      )
-    );
+    const updatedMyState = {
+      ...player,
+      progress: nextProgress,
+      score: nextScore,
+      mistakes: nextMistakes,
+      lives: nextLives,
+      isKO: userIsKO,
+      finished: isFinished,
+    };
 
-    if (isFinished) {
+    const nextPlayersState = playersState.map((p) =>
+      p.id === player.id ? updatedMyState : p
+    );
+    setPlayersState(nextPlayersState);
+
+    // If I cleared all 10 questions first!
+    if (isUserCleared && !matchEndedRef.current) {
       setIsMyFinished(true);
+      realtimeMultiplayer.declareWinnerClear(room.id, player.id, player.name, nextScore);
       setTimeout(() => {
-        calculateFinalRankings();
-      }, userIsKO ? 2000 : 1500);
+        endMatchInstantly(player.id, player.name, nextScore, nextPlayersState);
+      }, 600);
+      return;
+    }
+
+    // If user KO'd
+    if (userIsKO) {
+      // Check if all players are now KO'd or done
+      const allDone = nextPlayersState.every((p) => p.isKO || p.finished);
+      if (allDone && !matchEndedRef.current) {
+        setTimeout(() => {
+          endMatchInstantly(player.id, player.name, nextScore, nextPlayersState);
+        }, 1200);
+      }
     }
   };
 
   const handleNextQuestion = () => {
-    if (isKO || isMyFinished) return;
+    if (isKO || isMyFinished || matchEndedRef.current) return;
 
     if (currentIndex + 1 < questions.length) {
       setCurrentIndex((prev) => prev + 1);
@@ -298,64 +399,10 @@ export function BattleQuizSession({
     }
   };
 
-  // Calculate Rankings & ⚡️ Rewards (taking into account score & KO record)
-  const calculateFinalRankings = () => {
-    setIsMatchOver(true);
-    audio.playEnergyGet();
-
-    // Sort players: Active survivors first by Score DESC, KO players ranked by their recorded score at KO time
-    const sorted = [...playersState].sort((a, b) => {
-      // Both active or both KO: Compare by score
-      if (a.isKO === b.isKO) {
-        if ((b.score || 0) !== (a.score || 0)) {
-          return (b.score || 0) - (a.score || 0);
-        }
-        return (b.progress || 0) - (a.progress || 0);
-      }
-      // Non-KO player beats KO player if scores are close, but score is primary
-      if ((b.score || 0) !== (a.score || 0)) {
-        return (b.score || 0) - (a.score || 0);
-      }
-      return a.isKO ? 1 : -1;
-    });
-
-    // Multiplier from modifiers
-    const totalBonusMultiplier = 1 + room.modifiers.reduce((acc, m) => acc + (m.bonusPercent / 100), 0);
-
-    const ranked = sorted.map((p, idx) => {
-      const rank = idx + 1;
-      let baseReward = 6;
-      if (rank === 1) baseReward = 40;
-      else if (rank === 2) baseReward = 25;
-      else if (rank === 3) baseReward = 15;
-
-      const totalReward = Math.round(baseReward * totalBonusMultiplier);
-
-      return {
-        player: p,
-        rank,
-        reward: totalReward,
-        score: p.score || 0,
-        isKO: !!p.isKO,
-      };
-    });
-
-    setFinalRankings(ranked);
-
-    // Save reward for current user
-    const myRankItem = ranked.find((r) => r.player.id === player.id);
-    if (myRankItem) {
-      onFinishBattle({
-        rank: myRankItem.rank,
-        reward: myRankItem.reward,
-        score: myRankItem.score,
-      });
-    }
-  };
-
-  // 1. MATCH OVER PODIUM VIEW
+  // 1. MATCH OVER / PODIUM SCREEN
   if (isMatchOver) {
     const myResult = finalRankings.find((r) => r.player.id === player.id);
+    const isMeWinner = winnerInfo?.id === player.id;
 
     return (
       <div className="w-full max-w-lg mx-auto px-4 py-6">
@@ -366,30 +413,54 @@ export function BattleQuizSession({
           {/* Top Trophy or Skull */}
           <div className="flex justify-center mb-4">
             <div className={`w-20 h-20 rounded-3xl border-4 flex items-center justify-center shadow-md animate-bounce ${
-              isKO 
+              isMeWinner
+                ? 'bg-[#FFF9E6] border-[#FFD966] text-[#FF9600]'
+                : isKO 
                 ? 'bg-[#FFF0F0] border-[#FFD0D0] text-[#FF4B4B]' 
-                : 'bg-[#FFF9E6] border-[#FFD966] text-[#FF9600]'
+                : 'bg-[#F0F8FF] border-[#BAE3F8] text-[#1CB0F6]'
             }`}>
-              {isKO ? <Skull className="w-10 h-10" /> : <Trophy className="w-10 h-10" />}
+              {isMeWinner ? (
+                <Trophy className="w-10 h-10" />
+              ) : isKO ? (
+                <Skull className="w-10 h-10" />
+              ) : (
+                <Flag className="w-10 h-10" />
+              )}
             </div>
           </div>
 
-          <h2 className="text-3xl font-black text-[#3C3C3C] tracking-tight mb-1">
-            {isKO ? 'バトル終了 (ライフ0で脱落)' : 'オンライン対戦結果発表！'}
+          {/* Winner Announcement Banner */}
+          {winnerInfo && (
+            <div className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#FFF9E6] border border-[#FFD966] text-[#D97706] text-xs font-black">
+              <Sparkles className="w-4 h-4" />
+              <span>
+                {isMeWinner 
+                  ? '🎉 あなたが全10問を先着クリア！対戦終了！' 
+                  : `🏁 ${winnerInfo.name} が全10問を先着クリア！対戦終了！`}
+              </span>
+            </div>
+          )}
+
+          <h2 className="text-2xl sm:text-3xl font-black text-[#3C3C3C] tracking-tight mb-1">
+            {isMeWinner ? '見事1位クリア！' : isKO ? 'バトル終了 (ライフ0で脱落)' : '対戦結果発表！'}
           </h2>
-          <p className="text-sm font-bold text-[#AFAFAF] mb-6">
-            全10問のバトル結果と獲得⚡️コイン
+          <p className="text-xs sm:text-sm font-bold text-[#AFAFAF] mb-6">
+            進行速度・解答精度に応じた順位と獲得⚡️コイン
           </p>
 
           {/* My Rank Summary */}
           {myResult && (
             <div className={`p-4 border-2 rounded-2xl mb-6 flex items-center justify-between ${
-              isKO ? 'bg-[#FFF5F5] border-[#FF4B4B]' : 'bg-[#F7FFF0] border-[#58CC02]'
+              myResult.rank === 1
+                ? 'bg-[#FFFDF0] border-[#FFD966]'
+                : isKO 
+                ? 'bg-[#FFF5F5] border-[#FF4B4B]' 
+                : 'bg-[#F7FFF0] border-[#58CC02]'
             }`}>
               <div className="text-left">
                 <div className="text-xs font-black uppercase flex items-center gap-1.5">
-                  <span className={isKO ? 'text-[#FF4B4B]' : 'text-[#58A700]'}>
-                    あなたの最終順位 {isKO && '(ライフ0地点で記録)'}
+                  <span className={myResult.rank === 1 ? 'text-[#D97706]' : isKO ? 'text-[#FF4B4B]' : 'text-[#58A700]'}>
+                    あなたの確定順位 {isKO && '(ライフ0地点で記録)'}
                   </span>
                 </div>
                 <div className="text-2xl font-black text-[#3C3C3C] flex items-center gap-1.5">
@@ -399,7 +470,7 @@ export function BattleQuizSession({
                   {myResult.rank === 3 && <span>🥉</span>}
                 </div>
                 <div className="text-xs font-bold text-[#777777] mt-0.5">
-                  最終到達: {currentIndex + 1}/10問 • スコア: {myScore} pt
+                  最終進行: {myResult.player.progress || 0}/10問 • スコア: {myResult.score} pt
                 </div>
               </div>
 
@@ -426,7 +497,9 @@ export function BattleQuizSession({
                 <div
                   key={r.player.id}
                   className={`p-3 rounded-2xl border-2 flex items-center justify-between ${
-                    isMe 
+                    r.isClearWinner
+                      ? 'border-[#FFD966] bg-[#FFFDF2]'
+                      : isMe 
                       ? isKO ? 'border-[#FF4B4B] bg-[#FFF8F8]' : 'border-[#58CC02] bg-[#F7FFF0]' 
                       : 'border-[#E5E5E5] bg-white'
                   }`}
@@ -448,6 +521,11 @@ export function BattleQuizSession({
                       <div className="text-sm font-black text-[#3C3C3C] flex items-center gap-1">
                         <span>{r.player.name}</span>
                         {isMe && <span className="text-[10px] text-[#58CC02] font-black">(あなた)</span>}
+                        {r.isClearWinner && (
+                          <span className="text-[10px] font-black bg-[#FFF9E6] text-[#D97706] border border-[#FFD966] px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                            👑 先着クリア
+                          </span>
+                        )}
                         {r.isKO && (
                           <span className="text-[10px] font-black bg-[#FFD0D0] text-[#FF4B4B] px-1.5 py-0.2 rounded flex items-center gap-0.5">
                             <Skull className="w-2.5 h-2.5" /> KO
@@ -455,7 +533,7 @@ export function BattleQuizSession({
                         )}
                       </div>
                       <div className="text-xs font-bold text-[#AFAFAF]">
-                        {r.player.progress || 0}/10問 • スコア: {r.score} pt
+                        進行: {r.player.progress || 0}/10問 • スコア: {r.score} pt
                       </div>
                     </div>
                   </div>
@@ -505,7 +583,6 @@ export function BattleQuizSession({
 
           {/* Lives (3 Hearts) & Score */}
           <div className="flex items-center gap-3">
-            {/* Heart Icons */}
             <div className="flex items-center gap-1 bg-[#FFF0F0] px-2 py-0.5 rounded-full border border-[#FFD0D0]">
               {[1, 2, 3].map((heartIndex) => (
                 <Heart
@@ -536,7 +613,7 @@ export function BattleQuizSession({
             return (
               <div key={p.id} className="relative">
                 <div className="flex items-center justify-between text-[11px] font-black mb-0.5 text-[#777777]">
-                  <span className="flex items-center gap-1.5 truncate max-w-[150px]">
+                  <span className="flex items-center gap-1.5 truncate max-w-[160px]">
                     <span>{p.name} {isMe && '👑 (あなた)'}</span>
                     {isPKo && (
                       <span className="text-[9px] font-black bg-[#FFD0D0] text-[#FF4B4B] px-1 py-0.1 rounded flex items-center gap-0.5">
@@ -545,7 +622,6 @@ export function BattleQuizSession({
                     )}
                   </span>
                   <div className="flex items-center gap-2">
-                    {/* Tiny hearts indicator for rivals */}
                     <span className="text-[10px] text-[#FF4B4B]">
                       {'❤️'.repeat(Math.max(0, pLives))}
                     </span>
@@ -571,7 +647,7 @@ export function BattleQuizSession({
         </div>
       </div>
 
-      {/* KO Elimination Overlay when lives = 0 */}
+      {/* KO Elimination Waiting Overlay when lives = 0 */}
       {isKO ? (
         <div className="duo-card p-6 bg-white shadow-md text-center border-2 border-[#FF4B4B] animate-in fade-in duration-300">
           <div className="w-16 h-16 rounded-full bg-[#FFF0F0] text-[#FF4B4B] border-2 border-[#FFD0D0] flex items-center justify-center mx-auto mb-3">
@@ -581,17 +657,9 @@ export function BattleQuizSession({
             ライフが0になりました（KO脱落）
           </h3>
           <p className="text-xs font-bold text-[#777777] mb-4">
-            第{currentIndex + 1}問地点（スコア: {myScore} pt）があなたの最終記録となります。<br />
-            対戦相手の終了を待っています...
+            第{currentIndex + 1}問地点（スコア: {myScore} pt）があなたの確定記録となります。<br />
+            誰かが10問クリアするか、全員の対戦が終了するのを待機しています...
           </p>
-
-          <button
-            onClick={calculateFinalRankings}
-            className="duo-btn duo-btn-blue w-full h-12 rounded-2xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Medal className="w-4 h-4" />
-            <span>最終結果を確認する</span>
-          </button>
         </div>
       ) : (
         /* Main Question Card */
@@ -602,16 +670,16 @@ export function BattleQuizSession({
               <div className="inline-flex items-center gap-1 text-xs font-black text-[#1CB0F6] bg-[#EBF7FD] px-2.5 py-0.5 rounded-full border border-[#BAE3F8] mb-2">
                 <span>英検{currentQ.difficulty === '5kyu' ? '5級' : '4級'}</span>
                 <span>•</span>
-                <span>並べ替え・選択</span>
+                <span>先着10問クリアで勝利</span>
                 <span>•</span>
-                <span className="text-[#FF4B4B]">ミスであと{myLives}機</span>
+                <span className="text-[#FF4B4B]">残りライフ {myLives}</span>
               </div>
               <h2 className="text-xl sm:text-2xl font-black text-[#3C3C3C] leading-snug">
                 {currentQ.japanese}
               </h2>
             </div>
 
-            {/* Mode 1: Order (並べ替え 5〜6単語) */}
+            {/* Mode 1: Order (並べ替え) */}
             {currentQ.type === 'order' && currentQ.wordOptions && (
               <div className="space-y-4">
                 {/* Selected Words Drop Box */}
@@ -666,7 +734,7 @@ export function BattleQuizSession({
               </div>
             )}
 
-            {/* Mode 2: Multiple Choices (Blank, Translate, Dialogue) */}
+            {/* Mode 2: Multiple Choices */}
             {currentQ.type !== 'order' && currentQ.choices && (
               <div className="space-y-2.5">
                 {currentQ.promptSentence && (
@@ -735,15 +803,7 @@ export function BattleQuizSession({
                       <span>次の問題へ ({currentIndex + 2}/{TOTAL_BATTLE_QUESTIONS})</span>
                       <ArrowRight className="w-5 h-5" />
                     </button>
-                  ) : (
-                    <button
-                      onClick={calculateFinalRankings}
-                      className="duo-btn duo-btn-green w-full h-12 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                    >
-                      <Medal className="w-5 h-5" />
-                      <span>結果を見る</span>
-                    </button>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <button

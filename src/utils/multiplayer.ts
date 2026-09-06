@@ -20,6 +20,13 @@ export type MultiplayerEvent =
       finished: boolean;
       players?: RoomPlayer[];
     }
+  | {
+      type: 'MATCH_CLEARED_BY_WINNER';
+      roomId: string;
+      winnerId: string;
+      winnerName: string;
+      winnerScore: number;
+    }
   | { type: 'CONNECTION_STATUS'; connected: boolean; broker: string }
   | { type: 'ERROR'; message: string };
 
@@ -331,7 +338,7 @@ class RealtimeMultiplayerService {
         return;
       }
 
-      if (data.type === 'LIVE_PROGRESS_UPDATE') {
+      if (data.type === 'LIVE_PROGRESS_UPDATE' || data.type === 'MATCH_CLEARED_BY_WINNER') {
         this.handleIncomingEvent(data as MultiplayerEvent);
         return;
       }
@@ -575,6 +582,23 @@ class RealtimeMultiplayerService {
       finished,
     };
 
+    this.publish(ROOM_PROGRESS_TOPIC(roomId), payload);
+    this.handleIncomingEvent(payload);
+  }
+
+  public declareWinnerClear(
+    roomId: string,
+    winnerId: string,
+    winnerName: string,
+    winnerScore: number
+  ) {
+    const payload: MultiplayerEvent = {
+      type: 'MATCH_CLEARED_BY_WINNER',
+      roomId,
+      winnerId,
+      winnerName,
+      winnerScore,
+    };
     this.publish(ROOM_PROGRESS_TOPIC(roomId), payload);
     this.handleIncomingEvent(payload);
   }
