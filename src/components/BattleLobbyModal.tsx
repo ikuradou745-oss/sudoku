@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, 
   Swords, 
@@ -93,21 +93,31 @@ export function BattleLobbyModal({
   const [countdown, setCountdown] = useState<number | null>(null);
 
   const isLeader = activeRoom?.leaderId === currentUser.id;
+  const activeRoomRef = useRef<BattleRoom | null>(activeRoom);
+
+  useEffect(() => {
+    activeRoomRef.current = activeRoom;
+  }, [activeRoom]);
 
   // Real-time WebSocket / MQTT event subscription
   useEffect(() => {
     realtimeMultiplayer.identify(currentUser.id, currentUser.name);
     realtimeMultiplayer.fetchRooms();
 
-    // Auto-discover rooms periodically in real-time
+    // Auto-discover rooms periodically in real-time (every 1s)
     const pollInterval = setInterval(() => {
       realtimeMultiplayer.fetchRooms();
-    }, 1500);
+    }, 1000);
 
     const unsubscribe = realtimeMultiplayer.subscribe((event: MultiplayerEvent) => {
       switch (event.type) {
         case 'ROOMS_LIST': {
           setRooms(event.rooms);
+          setActiveRoom((currentActive) => {
+            if (!currentActive) return null;
+            const updated = event.rooms.find((r) => r.id === currentActive.id);
+            return updated ? updated : currentActive;
+          });
           break;
         }
 
@@ -118,14 +128,21 @@ export function BattleLobbyModal({
         }
 
         case 'ROOM_UPDATED': {
-          if (activeRoom && activeRoom.id === event.room.id) {
-            setActiveRoom(event.room);
-          }
+          setActiveRoom((currentActive) => {
+            if (currentActive && currentActive.id === event.room.id) {
+              return event.room;
+            }
+            return currentActive;
+          });
+          setRooms((prevRooms) =>
+            prevRooms.map((r) => (r.id === event.room.id ? event.room : r))
+          );
           break;
         }
 
         case 'KICKED_FROM_ROOM': {
-          if (activeRoom && activeRoom.id === event.roomId) {
+          const currentId = activeRoomRef.current?.id;
+          if (currentId && currentId === event.roomId) {
             audio.playWrong();
             setActiveRoom(null);
             setView('find_room');
@@ -135,7 +152,8 @@ export function BattleLobbyModal({
         }
 
         case 'COUNTDOWN_STARTED': {
-          if (activeRoom && activeRoom.id === event.room.id) {
+          const currentId = activeRoomRef.current?.id;
+          if (currentId && currentId === event.room.id) {
             setActiveRoom(event.room);
             triggerCountdown(event.room);
           }
@@ -158,7 +176,7 @@ export function BattleLobbyModal({
       clearInterval(pollInterval);
       unsubscribe();
     };
-  }, [activeRoom, currentUser.id, currentUser.name]);
+  }, [currentUser.id, currentUser.name]);
 
   // Handle manual room refresh
   const handleRefreshRooms = () => {
