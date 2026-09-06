@@ -15,6 +15,8 @@ interface RoomPlayer {
   progress?: number;
   score?: number;
   mistakes?: number;
+  lives?: number;
+  isKO?: boolean;
   finished?: boolean;
   finishTime?: number;
 }
@@ -40,10 +42,35 @@ interface BattleRoom {
   seed: number;
 }
 
-// In-Memory Server Room Storage
+// In-Memory Server Room Storage (Authoritative)
 const rooms = new Map<string, BattleRoom>();
-// Client Connection Context
+
+// Client Connection Context for WebSockets
 const clientMeta = new Map<WebSocket, { playerId: string; roomId: string | null; name: string }>();
+
+// SSE (Server-Sent Events) clients for real-time HTTP streaming
+const sseClients = new Set<express.Response>();
+
+function getRoomsList(): BattleRoom[] {
+  return Array.from(rooms.values()).filter(
+    (r) => r.status === 'waiting' || (r.players.length > 0 && r.status !== 'finished')
+  );
+}
+
+// Clean up stale empty rooms periodically (every 1 minute)
+setInterval(() => {
+  const now = Date.now();
+  rooms.forEach((room, roomId) => {
+    // If room is empty and older than 10 seconds, delete
+    if (room.players.length === 0 && now - room.createdAt > 10000) {
+      rooms.delete(roomId);
+    }
+    // If room is finished and older than 5 minutes, delete
+    if (room.status === 'finished' && now - room.createdAt > 1000 * 60 * 5) {
+      rooms.delete(roomId);
+    }
+  });
+}, 30000);
 
 async function startServer() {
   const app = express();
@@ -52,36 +79,31 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API Routes
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', onlinePlayers: clientMeta.size, activeRooms: rooms.size });
-  });
-
-  app.get('/api/rooms', (req, res) => {
-    const list = Array.from(rooms.values()).filter(
-      (r) => r.status === 'waiting' || r.players.length > 0
-    );
-    res.json(list);
-  });
-
   // Real-time WebSocket Server
   const wss = new WebSocketServer({ server, path: '/ws' });
 
-  function broadcastToAll(data: any) {
-    const message = JSON.stringify(data);
+  // Unified broadcast function (WebSockets + SSE)
+  function broadcastEvent(data: any) {
+    const raw = JSON.stringify(data);
+
+    // 1. WebSocket Broadcast
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
+        try {
+          client.send(raw);
+        } catch {
+          // Ignore
+        }
       }
     });
-  }
 
-  function broadcastToRoom(roomId: string, data: any) {
-    const message = JSON.stringify(data);
-    wss.clients.forEach((client) => {
-      const meta = clientMeta.get(client);
-      if (client.readyState === WebSocket.OPEN && meta?.roomId === roomId) {
-        client.send(message);
+    // 2. Server-Sent Events (SSE) Broadcast
+    const sseMessage = `data: ${raw}\n\n`;
+    sseClients.forEach((res) => {
+      try {
+        res.write(sseMessage);
+      } catch {
+        sseClients.delete(res);
       }
     });
   }
@@ -91,21 +113,271 @@ async function startServer() {
     wss.clients.forEach((client) => {
       const meta = clientMeta.get(client);
       if (client.readyState === WebSocket.OPEN && meta?.playerId === playerId) {
-        client.send(message);
+        try {
+          client.send(message);
+        } catch {
+          // Ignore
+        }
       }
     });
   }
 
-  function getRoomsList(): BattleRoom[] {
-    return Array.from(rooms.values()).filter(
-      (r) => r.status === 'waiting' || (r.players.length > 0 && r.status !== 'finished')
-    );
-  }
+  // ==========================================
+  // 1. SSE (Server-Sent Events) Endpoint
+  // ==========================================
+  app.get('/api/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
+    sseClients.add(res);
+
+    // Send initial snapshot
+    res.write(`data: ${JSON.stringify({ type: 'ROOMS_LIST', rooms: getRoomsList() })}\n\n`);
+
+    const pingTimer = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        clearInterval(pingTimer);
+        sseClients.delete(res);
+      }
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(pingTimer);
+      sseClients.delete(res);
+    });
+  });
+
+  // ==========================================
+  // 2. REST API Endpoints for Guaranteed Sync
+  // ==========================================
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      onlineWs: clientMeta.size,
+      onlineSse: sseClients.size,
+      activeRooms: rooms.size,
+    });
+  });
+
+  // Get all active rooms
+  app.get('/api/rooms', (req, res) => {
+    res.json(getRoomsList());
+  });
+
+  // Get single room details
+  app.get('/api/rooms/:id', (req, res) => {
+    const room = rooms.get(req.params.id);
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    res.json(room);
+  });
+
+  // Create Room
+  app.post('/api/rooms/create', (req, res) => {
+    const { name, maxPlayers, modifiers, leaderPlayer } = req.body;
+    if (!leaderPlayer || !leaderPlayer.id) {
+      return res.status(400).json({ error: 'leaderPlayer is required' });
+    }
+
+    const newRoom: BattleRoom = {
+      id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: (name || `${leaderPlayer.name}の部屋`).trim(),
+      leaderId: leaderPlayer.id,
+      maxPlayers: Math.max(2, Math.min(8, maxPlayers || 4)),
+      players: [{ ...leaderPlayer, isLeader: true, isReady: true, progress: 0, score: 0, mistakes: 0, lives: 3, isKO: false }],
+      modifiers: (modifiers || []).filter((m: Modifier) => m.active),
+      status: 'waiting',
+      createdAt: Date.now(),
+      seed: Math.floor(Math.random() * 100000),
+    };
+
+    rooms.set(newRoom.id, newRoom);
+
+    broadcastEvent({ type: 'ROOM_CREATED', room: newRoom });
+    broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+
+    res.json({ success: true, room: newRoom });
+  });
+
+  // Join Room
+  app.post('/api/rooms/:id/join', (req, res) => {
+    const roomId = req.params.id;
+    const { player } = req.body;
+    if (!player || !player.id) {
+      return res.status(400).json({ error: 'player object is required' });
+    }
+
+    const targetRoom = rooms.get(roomId);
+    if (!targetRoom) {
+      return res.status(404).json({ error: '部屋が見つかりませんでした' });
+    }
+
+    if (targetRoom.status === 'in_game' || targetRoom.status === 'countdown') {
+      return res.status(400).json({ error: 'この対戦はすでに開始されています' });
+    }
+
+    const existingIdx = targetRoom.players.findIndex((p) => p.id === player.id);
+    if (existingIdx === -1 && targetRoom.players.length >= targetRoom.maxPlayers) {
+      return res.status(400).json({ error: 'この部屋は満員です' });
+    }
+
+    const joinedPlayer: RoomPlayer = {
+      ...player,
+      isLeader: targetRoom.players.length === 0,
+      isReady: true,
+      progress: 0,
+      score: 0,
+      mistakes: 0,
+      lives: 3,
+      isKO: false,
+    };
+
+    if (existingIdx >= 0) {
+      targetRoom.players[existingIdx] = joinedPlayer;
+    } else {
+      targetRoom.players.push(joinedPlayer);
+    }
+
+    broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+    broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+
+    res.json({ success: true, room: targetRoom });
+  });
+
+  // Leave Room
+  app.post('/api/rooms/:id/leave', (req, res) => {
+    const roomId = req.params.id;
+    const { playerId } = req.body;
+    if (!playerId) {
+      return res.status(400).json({ error: 'playerId is required' });
+    }
+
+    const targetRoom = rooms.get(roomId);
+    if (targetRoom) {
+      targetRoom.players = targetRoom.players.filter((p) => p.id !== playerId);
+
+      if (targetRoom.leaderId === playerId && targetRoom.players.length > 0) {
+        targetRoom.players[0].isLeader = true;
+        targetRoom.leaderId = targetRoom.players[0].id;
+      } else if (targetRoom.players.length === 0) {
+        rooms.delete(targetRoom.id);
+      }
+
+      broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+      broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+
+      res.json({ success: true, room: targetRoom });
+    } else {
+      res.json({ success: true, room: null });
+    }
+  });
+
+  // Kick Player
+  app.post('/api/rooms/:id/kick', (req, res) => {
+    const roomId = req.params.id;
+    const { targetPlayerId } = req.body;
+    const targetRoom = rooms.get(roomId);
+
+    if (targetRoom && targetPlayerId) {
+      targetRoom.players = targetRoom.players.filter((p) => p.id !== targetPlayerId);
+
+      sendToPlayer(targetPlayerId, { type: 'KICKED_FROM_ROOM', roomId });
+      broadcastEvent({ type: 'KICKED_FROM_ROOM', roomId, targetPlayerId });
+      broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+      broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+
+      res.json({ success: true, room: targetRoom });
+    } else {
+      res.status(404).json({ error: 'Room or player not found' });
+    }
+  });
+
+  // Start Countdown
+  app.post('/api/rooms/:id/countdown', (req, res) => {
+    const roomId = req.params.id;
+    const targetRoom = rooms.get(roomId);
+
+    if (targetRoom) {
+      targetRoom.status = 'countdown';
+      targetRoom.seed = Math.floor(Math.random() * 100000);
+
+      broadcastEvent({ type: 'COUNTDOWN_STARTED', room: targetRoom });
+      broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+      broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+
+      res.json({ success: true, room: targetRoom });
+    } else {
+      res.status(404).json({ error: 'Room not found' });
+    }
+  });
+
+  // Report Live Progress
+  app.post('/api/rooms/:id/progress', (req, res) => {
+    const roomId = req.params.id;
+    const { playerId, progress, score, mistakes, finished, lives, isKO } = req.body;
+    const targetRoom = rooms.get(roomId);
+
+    if (targetRoom) {
+      targetRoom.status = 'in_game';
+      const player = targetRoom.players.find((p) => p.id === playerId);
+      if (player) {
+        player.progress = progress;
+        player.score = score;
+        player.mistakes = mistakes;
+        player.finished = finished;
+        if (typeof lives === 'number') player.lives = lives;
+        if (typeof isKO === 'boolean') player.isKO = isKO;
+        if (finished && !player.finishTime) {
+          player.finishTime = Date.now();
+        }
+      }
+
+      broadcastEvent({
+        type: 'LIVE_PROGRESS_UPDATE',
+        roomId,
+        playerId,
+        progress,
+        score,
+        mistakes,
+        lives,
+        isKO,
+        finished,
+        players: targetRoom.players,
+      });
+
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Room not found' });
+    }
+  });
+
+  // Declare Winner Clear
+  app.post('/api/rooms/:id/declare-winner', (req, res) => {
+    const roomId = req.params.id;
+    const { winnerId, winnerName, winnerScore } = req.body;
+    broadcastEvent({
+      type: 'MATCH_CLEARED_BY_WINNER',
+      roomId,
+      winnerId,
+      winnerName,
+      winnerScore,
+    });
+    res.json({ success: true });
+  });
+
+  // ==========================================
+  // 3. WebSocket Connection Handling
+  // ==========================================
   wss.on('connection', (ws) => {
     clientMeta.set(ws, { playerId: '', roomId: null, name: '' });
 
-    // Send initial rooms list on connect
+    // Send initial snapshot on connect
     ws.send(JSON.stringify({ type: 'ROOMS_LIST', rooms: getRoomsList() }));
 
     ws.on('message', (raw) => {
@@ -134,7 +406,7 @@ async function startServer() {
               name: (name || `${leaderPlayer.name}の部屋`).trim(),
               leaderId: leaderPlayer.id,
               maxPlayers: Math.max(2, Math.min(8, maxPlayers || 4)),
-              players: [{ ...leaderPlayer, isLeader: true, isReady: true }],
+              players: [{ ...leaderPlayer, isLeader: true, isReady: true, progress: 0, score: 0, mistakes: 0, lives: 3, isKO: false }],
               modifiers: (modifiers || []).filter((m: Modifier) => m.active),
               status: 'waiting',
               createdAt: Date.now(),
@@ -148,8 +420,8 @@ async function startServer() {
               meta.name = leaderPlayer.name;
             }
 
-            ws.send(JSON.stringify({ type: 'ROOM_CREATED', room: newRoom }));
-            broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+            broadcastEvent({ type: 'ROOM_CREATED', room: newRoom });
+            broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
             break;
           }
 
@@ -172,7 +444,6 @@ async function startServer() {
               return;
             }
 
-            // Remove player if already existing, then add
             const existingIdx = targetRoom.players.findIndex((p) => p.id === player.id);
             const joinedPlayer: RoomPlayer = {
               ...player,
@@ -181,6 +452,8 @@ async function startServer() {
               progress: 0,
               score: 0,
               mistakes: 0,
+              lives: 3,
+              isKO: false,
             };
 
             if (existingIdx >= 0) {
@@ -195,9 +468,8 @@ async function startServer() {
               meta.name = player.name;
             }
 
-            // Notify everyone in the room and update public lobby
-            broadcastToRoom(targetRoom.id, { type: 'ROOM_UPDATED', room: targetRoom });
-            broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+            broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+            broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
             break;
           }
 
@@ -207,7 +479,6 @@ async function startServer() {
             if (targetRoom) {
               targetRoom.players = targetRoom.players.filter((p) => p.id !== playerId);
 
-              // If leader left, promote next player or delete if empty
               if (targetRoom.leaderId === playerId && targetRoom.players.length > 0) {
                 targetRoom.players[0].isLeader = true;
                 targetRoom.leaderId = targetRoom.players[0].id;
@@ -217,9 +488,8 @@ async function startServer() {
 
               if (meta) meta.roomId = null;
 
-              broadcastToRoom(roomId, { type: 'ROOM_UPDATED', room: targetRoom });
-              broadcastToAll({ type: 'ROOM_UPDATED', room: targetRoom });
-              broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+              broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+              broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
             }
             break;
           }
@@ -230,12 +500,10 @@ async function startServer() {
             if (targetRoom) {
               targetRoom.players = targetRoom.players.filter((p) => p.id !== targetPlayerId);
 
-              // Send kick event to the specific kicked player
               sendToPlayer(targetPlayerId, { type: 'KICKED_FROM_ROOM', roomId });
-
-              // Notify rest of the room
-              broadcastToRoom(roomId, { type: 'ROOM_UPDATED', room: targetRoom });
-              broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+              broadcastEvent({ type: 'KICKED_FROM_ROOM', roomId, targetPlayerId });
+              broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+              broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
             }
             break;
           }
@@ -246,14 +514,15 @@ async function startServer() {
             if (targetRoom) {
               targetRoom.status = 'countdown';
               targetRoom.seed = Math.floor(Math.random() * 100000);
-              broadcastToRoom(roomId, { type: 'COUNTDOWN_STARTED', room: targetRoom });
-              broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+              broadcastEvent({ type: 'COUNTDOWN_STARTED', room: targetRoom });
+              broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+              broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
             }
             break;
           }
 
           case 'PROGRESS_UPDATE': {
-            const { roomId, playerId, progress, score, mistakes, finished } = msg;
+            const { roomId, playerId, progress, score, mistakes, finished, lives, isKO } = msg;
             const targetRoom = rooms.get(roomId);
             if (targetRoom) {
               targetRoom.status = 'in_game';
@@ -263,19 +532,22 @@ async function startServer() {
                 player.score = score;
                 player.mistakes = mistakes;
                 player.finished = finished;
+                if (typeof lives === 'number') player.lives = lives;
+                if (typeof isKO === 'boolean') player.isKO = isKO;
                 if (finished && !player.finishTime) {
                   player.finishTime = Date.now();
                 }
               }
 
-              // Relay live progress update to all opponents in the room
-              broadcastToRoom(roomId, {
+              broadcastEvent({
                 type: 'LIVE_PROGRESS_UPDATE',
                 roomId,
                 playerId,
                 progress,
                 score,
                 mistakes,
+                lives,
+                isKO,
                 finished,
                 players: targetRoom.players,
               });
@@ -300,9 +572,8 @@ async function startServer() {
           } else if (targetRoom.players.length === 0) {
             rooms.delete(targetRoom.id);
           }
-          broadcastToRoom(meta.roomId, { type: 'ROOM_UPDATED', room: targetRoom });
-          broadcastToAll({ type: 'ROOM_UPDATED', room: targetRoom });
-          broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
+          broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
+          broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
         }
       }
       clientMeta.delete(ws);
@@ -354,7 +625,7 @@ async function startServer() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server & WebSockets running on http://localhost:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT} with SSE, WebSockets & REST API`);
   });
 }
 

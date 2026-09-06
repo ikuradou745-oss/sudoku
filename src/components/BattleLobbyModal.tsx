@@ -128,14 +128,19 @@ export function BattleLobbyModal({
 
         case 'ROOM_UPDATED': {
           setActiveRoom((currentActive) => {
-            if (currentActive && currentActive.id === event.room.id) {
+            if (currentActive && (currentActive.id === event.room.id || currentActive.leaderId === event.room.leaderId)) {
               return event.room;
             }
             return currentActive;
           });
-          setRooms((prevRooms) =>
-            prevRooms.map((r) => (r.id === event.room.id ? event.room : r))
-          );
+          setRooms((prevRooms) => {
+            const exists = prevRooms.some((r) => r.id === event.room.id);
+            if (exists) {
+              return prevRooms.map((r) => (r.id === event.room.id ? event.room : r));
+            } else {
+              return [...prevRooms, event.room];
+            }
+          });
           break;
         }
 
