@@ -15,6 +15,8 @@ export type MultiplayerEvent =
       progress: number;
       score: number;
       mistakes: number;
+      lives?: number;
+      isKO?: boolean;
       finished: boolean;
       players?: RoomPlayer[];
     }
@@ -557,7 +559,9 @@ class RealtimeMultiplayerService {
     progress: number,
     score: number,
     mistakes: number,
-    finished: boolean
+    finished: boolean,
+    lives?: number,
+    isKO?: boolean
   ) {
     const payload: MultiplayerEvent = {
       type: 'LIVE_PROGRESS_UPDATE',
@@ -566,6 +570,8 @@ class RealtimeMultiplayerService {
       progress,
       score,
       mistakes,
+      lives: lives !== undefined ? lives : 3,
+      isKO: !!isKO,
       finished,
     };
 

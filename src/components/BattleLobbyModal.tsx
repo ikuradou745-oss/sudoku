@@ -99,6 +99,11 @@ export function BattleLobbyModal({
     realtimeMultiplayer.identify(currentUser.id, currentUser.name);
     realtimeMultiplayer.fetchRooms();
 
+    // Auto-discover rooms periodically in real-time
+    const pollInterval = setInterval(() => {
+      realtimeMultiplayer.fetchRooms();
+    }, 1500);
+
     const unsubscribe = realtimeMultiplayer.subscribe((event: MultiplayerEvent) => {
       switch (event.type) {
         case 'ROOMS_LIST': {
@@ -149,7 +154,10 @@ export function BattleLobbyModal({
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearInterval(pollInterval);
+      unsubscribe();
+    };
   }, [activeRoom, currentUser.id, currentUser.name]);
 
   // Handle manual room refresh

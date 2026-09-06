@@ -46,9 +46,11 @@ export interface RoomPlayer {
   isLeader: boolean;
   isReady: boolean;
   isBot?: boolean;
-  progress?: number; // 0 to 5
+  progress?: number; // 0 to 10
   score?: number;
   mistakes?: number;
+  lives?: number; // 3 to 0
+  isKO?: boolean;
   finished?: boolean;
   finishTime?: number;
 }
