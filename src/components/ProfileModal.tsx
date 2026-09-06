@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
   Check, 
@@ -622,7 +622,7 @@ export function ProfileModal({
                   <span>クリア</span>
                 </button>
 
-                {gridSize !== 'smooth' && (
+                {gridSize !== 'smooth' ? (
                   <button
                     type="button"
                     onClick={() => setShowGridLines(!showGridLines)}
@@ -634,6 +634,26 @@ export function ProfileModal({
                   >
                     <Grid className="w-3.5 h-3.5" />
                   </button>
+                ) : (
+                  <div className="flex items-center gap-1 bg-white border-2 border-[#E5E5E5] rounded-xl px-1.5 py-0.5">
+                    {[2, 4, 6].map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => {
+                          audio.playTap();
+                          setBrushSize(sz);
+                        }}
+                        className={`w-5 h-5 rounded-md text-[10px] font-black cursor-pointer ${
+                          brushSize === sz
+                            ? 'bg-[#58CC02] text-white'
+                            : 'text-[#777777]'
+                        }`}
+                      >
+                        {sz}px
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
 
