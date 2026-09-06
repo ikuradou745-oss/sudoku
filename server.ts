@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 
@@ -329,6 +330,17 @@ async function startServer() {
     });
   });
 
+  // Favicon handler
+  app.get('/favicon.ico', (req, res) => {
+    const iconPath = path.join(process.cwd(), 'public', 'favicon.svg');
+    if (fs.existsSync(iconPath)) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.sendFile(iconPath);
+    } else {
+      res.status(204).end();
+    }
+  });
+
   // Vite middleware in dev, static files in production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -336,10 +348,28 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // Fallback for SPA routing in development
+    app.use(async (req, res, next) => {
+      if (req.method !== 'GET') return next();
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/ws')) return next();
+      try {
+        const url = req.originalUrl;
+        const indexPath = path.resolve(process.cwd(), 'index.html');
+        let template = await fs.promises.readFile(indexPath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.use((req, res, next) => {
+      if (req.method !== 'GET') return next();
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/ws')) return next();
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
