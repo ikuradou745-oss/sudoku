@@ -27,15 +27,67 @@ class RealtimeMultiplayerService {
   private reconnectTimer: any = null;
   private currentUserId: string = '';
   private currentUserName: string = '';
+  private fallbackChannel: BroadcastChannel | null = null;
+  private fallbackRooms: Map<string, BattleRoom> = new Map();
 
   constructor() {
     if (typeof window !== 'undefined') {
+      try {
+        this.fallbackChannel = new BroadcastChannel('uolingo_multiplayer_channel');
+        this.fallbackChannel.onmessage = (event) => {
+          this.handleIncomingEvent(event.data);
+        };
+      } catch {
+        // Fallback channel not supported in some older environments
+      }
+      this.initFallbackDemoRooms();
       this.connect();
     }
   }
 
+  private initFallbackDemoRooms() {
+    this.fallbackRooms.set('room_novice_public', {
+      id: 'room_novice_public',
+      name: '初心者歓迎！公開ルーム',
+      leaderId: 'bot_leader',
+      maxPlayers: 4,
+      modifiers: [],
+      seed: 1024,
+      status: 'waiting',
+      players: [
+        {
+          id: 'bot_leader',
+          name: 'うおリンゴ案内人🤖',
+          avatarUrl: null,
+          isLeader: true,
+          isReady: true,
+          isBot: true,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+        },
+      ],
+      createdAt: Date.now(),
+    });
+  }
+
+  private handleIncomingEvent(event: MultiplayerEvent) {
+    this.listeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (e) {
+        console.debug('Error in listener', e);
+      }
+    });
+  }
+
   public connect() {
     if (typeof window === 'undefined' || this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
+      return;
+    }
+
+    // Do not attempt WS connect if on static GitHub Pages domain to avoid console errors
+    if (window.location.hostname.endsWith('github.io')) {
       return;
     }
 
@@ -57,13 +109,7 @@ class RealtimeMultiplayerService {
       this.ws.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data) as MultiplayerEvent;
-          this.listeners.forEach((listener) => {
-            try {
-              listener(parsed);
-            } catch (e) {
-              console.debug('Error in listener', e);
-            }
-          });
+          this.handleIncomingEvent(parsed);
         } catch (err) {
           console.debug('Failed to parse WS message', err);
         }
@@ -85,6 +131,9 @@ class RealtimeMultiplayerService {
   }
 
   private scheduleReconnect() {
+    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+      return;
+    }
     if (this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -102,9 +151,99 @@ class RealtimeMultiplayerService {
   public send(data: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
-    } else {
-      // Reconnect if needed
-      this.connect();
+      return;
+    }
+
+    // Static / Offline fallback handling
+    this.handleLocalFallback(data);
+  }
+
+  private handleLocalFallback(data: any) {
+    if (!data || !data.type) return;
+
+    if (data.type === 'GET_ROOMS') {
+      const rooms = Array.from(this.fallbackRooms.values());
+      this.handleIncomingEvent({ type: 'ROOMS_LIST', rooms });
+      return;
+    }
+
+    if (data.type === 'CREATE_ROOM') {
+      const newRoom: BattleRoom = {
+        id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        name: data.name || '対戦ルーム',
+        leaderId: data.leaderPlayer.id,
+        maxPlayers: data.maxPlayers || 4,
+        modifiers: data.modifiers || [],
+        seed: Math.floor(Math.random() * 10000),
+        status: 'waiting',
+        players: [data.leaderPlayer],
+        createdAt: Date.now(),
+      };
+      this.fallbackRooms.set(newRoom.id, newRoom);
+      this.handleIncomingEvent({ type: 'ROOM_CREATED', room: newRoom });
+      this.fallbackChannel?.postMessage({ type: 'ROOM_CREATED', room: newRoom });
+      return;
+    }
+
+    if (data.type === 'JOIN_ROOM') {
+      const room = this.fallbackRooms.get(data.roomId);
+      if (room) {
+        if (!room.players.some((p) => p.id === data.player.id)) {
+          room.players.push(data.player);
+        }
+        this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: { ...room } });
+        this.fallbackChannel?.postMessage({ type: 'ROOM_UPDATED', room: { ...room } });
+      }
+      return;
+    }
+
+    if (data.type === 'LEAVE_ROOM') {
+      const room = this.fallbackRooms.get(data.roomId);
+      if (room) {
+        room.players = room.players.filter((p) => p.id !== data.playerId);
+        if (room.players.length > 0 && room.leaderId === data.playerId) {
+          room.leaderId = room.players[0].id;
+        }
+        this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: { ...room } });
+        this.fallbackChannel?.postMessage({ type: 'ROOM_UPDATED', room: { ...room } });
+      }
+      return;
+    }
+
+    if (data.type === 'KICK_PLAYER') {
+      const room = this.fallbackRooms.get(data.roomId);
+      if (room) {
+        room.players = room.players.filter((p) => p.id !== data.targetPlayerId);
+        this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: { ...room } });
+        this.handleIncomingEvent({ type: 'KICKED_FROM_ROOM', roomId: data.roomId });
+        this.fallbackChannel?.postMessage({ type: 'ROOM_UPDATED', room: { ...room } });
+        this.fallbackChannel?.postMessage({ type: 'KICKED_FROM_ROOM', roomId: data.roomId });
+      }
+      return;
+    }
+
+    if (data.type === 'START_COUNTDOWN') {
+      const room = this.fallbackRooms.get(data.roomId);
+      if (room) {
+        room.status = 'in_game';
+        this.handleIncomingEvent({ type: 'COUNTDOWN_STARTED', room: { ...room } });
+        this.fallbackChannel?.postMessage({ type: 'COUNTDOWN_STARTED', room: { ...room } });
+      }
+      return;
+    }
+
+    if (data.type === 'PROGRESS_UPDATE') {
+      const payload: MultiplayerEvent = {
+        type: 'LIVE_PROGRESS_UPDATE',
+        roomId: data.roomId,
+        playerId: data.playerId,
+        progress: data.progress,
+        score: data.score,
+        mistakes: data.mistakes,
+        finished: data.finished,
+      };
+      this.handleIncomingEvent(payload);
+      this.fallbackChannel?.postMessage(payload);
     }
   }
 
