@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Swords, 
@@ -13,10 +13,13 @@ import {
   ArrowLeft,
   Sparkles,
   Lock,
-  Wifi
+  Wifi,
+  RefreshCw,
+  Copy,
+  Check
 } from 'lucide-react';
 import { BattleRoom, RoomPlayer, Modifier } from '../types';
-import { realtimeMultiplayer } from '../utils/multiplayer';
+import { realtimeMultiplayer, MultiplayerEvent } from '../utils/multiplayer';
 import { audio } from '../utils/audio';
 
 type LobbyView = 'mode_select' | 'find_room' | 'create_room' | 'waiting_room';
@@ -76,6 +79,10 @@ export function BattleLobbyModal({
   const [view, setView] = useState<LobbyView>('mode_select');
   const [rooms, setRooms] = useState<BattleRoom[]>([]);
   const [activeRoom, setActiveRoom] = useState<BattleRoom | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isConnected, setIsConnected] = useState<boolean>(true);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
   // Room Creation Form State
   const [newRoomName, setNewRoomName] = useState<string>('初心者歓迎！リアルタイム英語バトル');
@@ -87,12 +94,12 @@ export function BattleLobbyModal({
 
   const isLeader = activeRoom?.leaderId === currentUser.id;
 
-  // Real-time WebSocket event subscription
+  // Real-time WebSocket / MQTT event subscription
   useEffect(() => {
     realtimeMultiplayer.identify(currentUser.id, currentUser.name);
     realtimeMultiplayer.fetchRooms();
 
-    const unsubscribe = realtimeMultiplayer.subscribe((event) => {
+    const unsubscribe = realtimeMultiplayer.subscribe((event: MultiplayerEvent) => {
       switch (event.type) {
         case 'ROOMS_LIST': {
           setRooms(event.rooms);
@@ -130,6 +137,11 @@ export function BattleLobbyModal({
           break;
         }
 
+        case 'CONNECTION_STATUS': {
+          setIsConnected(event.connected);
+          break;
+        }
+
         case 'ERROR': {
           alert(event.message);
           break;
@@ -139,6 +151,28 @@ export function BattleLobbyModal({
 
     return () => unsubscribe();
   }, [activeRoom, currentUser.id, currentUser.name]);
+
+  // Handle manual room refresh
+  const handleRefreshRooms = () => {
+    audio.playTap();
+    setIsRefreshing(true);
+    realtimeMultiplayer.fetchRooms();
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 600);
+  };
+
+  // Filter rooms by name or ID
+  const filteredRooms = useMemo(() => {
+    if (!searchQuery.trim()) return rooms;
+    const q = searchQuery.toLowerCase().trim();
+    return rooms.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.id.toLowerCase().includes(q) ||
+        r.players.some((p) => p.name.toLowerCase().includes(q))
+    );
+  }, [rooms, searchQuery]);
 
   // Handle joining an existing online room
   const handleJoinRoom = (room: BattleRoom) => {
@@ -180,15 +214,18 @@ export function BattleLobbyModal({
       mistakes: 0,
     };
 
-    realtimeMultiplayer.createRoom(
+    const created = realtimeMultiplayer.createRoom(
       newRoomName,
       newMaxPlayers,
       selectedModifiers,
       leaderPlayer
     );
+
+    setActiveRoom(created);
+    setView('waiting_room');
   };
 
-  // Leader: Add Bot Opponent for solo testing
+  // Leader: Add Bot Opponent for instant solo testing
   const handleAddBot = () => {
     if (!activeRoom || !isLeader) return;
     if (activeRoom.players.length >= activeRoom.maxPlayers) {
@@ -229,6 +266,24 @@ export function BattleLobbyModal({
     setView('mode_select');
   };
 
+  // Copy Room Invite
+  const handleCopyInvite = () => {
+    audio.playTap();
+    if (!activeRoom) return;
+
+    const shareUrl = `${window.location.origin}${window.location.pathname}#room=${activeRoom.id}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        setCopiedCode(true);
+        setTimeout(() => setCopiedCode(false), 2000);
+      }).catch(() => {
+        prompt('このURLを対戦相手に共有してください:', shareUrl);
+      });
+    } else {
+      prompt('このURLを対戦相手に共有してください:', shareUrl);
+    }
+  };
+
   // Trigger 3-Second Synchronized Countdown
   const triggerCountdown = (targetRoom: BattleRoom) => {
     setCountdown(3);
@@ -258,11 +313,11 @@ export function BattleLobbyModal({
     }, 1000);
   };
 
-  // Leader: Start Match (準備OK / 対戦スタート)
+  // Leader: Start Match
   const handleLeaderStart = () => {
     if (!activeRoom || !isLeader) return;
     if (activeRoom.players.length < 2) {
-      const addBot = confirm('対戦相手がまだいません。「botを追加」して対戦を開始しますか？（他のブラウザや端末から同じ部屋に入ると人間同士で対戦できます）');
+      const addBot = confirm('対戦相手がまだいません。「botを追加」して対戦を開始しますか？（他のブラウザやスマホから入ると人間同士でリアルタイム対戦できます）');
       if (addBot) {
         handleAddBot();
         setTimeout(() => {
@@ -315,9 +370,13 @@ export function BattleLobbyModal({
                 <h2 className="text-xl font-black text-[#3C3C3C]">
                   オンライン対戦
                 </h2>
-                <span className="flex items-center gap-1 text-[10px] font-black bg-[#EBF7FD] text-[#1CB0F6] px-2 py-0.5 rounded-full border border-[#BAE3F8]">
-                  <span className="w-2 h-2 rounded-full bg-[#1CB0F6] animate-ping" />
-                  リアルタイム通信
+                <span className={`flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                  isConnected 
+                    ? 'bg-[#EBF7FD] text-[#1CB0F6] border-[#BAE3F8]' 
+                    : 'bg-[#FFF0F0] text-[#FF4B4B] border-[#FFD0D0]'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#1CB0F6] animate-ping' : 'bg-[#FF4B4B]'}`} />
+                  {isConnected ? '全国オンライン接続中' : '再接続中...'}
                 </span>
               </div>
               <p className="text-xs font-bold text-[#AFAFAF]">
@@ -345,6 +404,7 @@ export function BattleLobbyModal({
               onClick={() => {
                 audio.playTap();
                 setView('find_room');
+                realtimeMultiplayer.fetchRooms();
               }}
               className="duo-btn duo-btn-blue w-full p-5 rounded-2xl flex items-center justify-between text-left group cursor-pointer"
             >
@@ -411,79 +471,121 @@ export function BattleLobbyModal({
                 <span>戻る</span>
               </button>
 
-              <button
-                id="open-create-room-btn"
-                onClick={() => {
-                  audio.playTap();
-                  setView('create_room');
-                }}
-                className="duo-btn duo-btn-green px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>部屋を作る</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRefreshRooms}
+                  title="部屋一覧を再読み込み"
+                  className={`p-2 rounded-xl border-2 border-[#E5E5E5] bg-[#F7F7F7] text-[#777777] hover:text-[#3C3C3C] cursor-pointer ${
+                    isRefreshing ? 'animate-spin' : ''
+                  }`}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+
+                <button
+                  id="open-create-room-btn"
+                  onClick={() => {
+                    audio.playTap();
+                    setView('create_room');
+                  }}
+                  className="duo-btn duo-btn-green px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>部屋を作る</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative mb-3">
+              <Search className="w-4 h-4 text-[#AFAFAF] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="部屋名・部屋IDで検索..."
+                className="w-full h-10 pl-9 pr-3 rounded-xl border-2 border-[#E5E5E5] focus:border-[#1CB0F6] text-xs font-bold text-[#3C3C3C] outline-none"
+              />
             </div>
 
             <div className="text-sm font-black text-[#3C3C3C] mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
-                <Search className="w-4 h-4 text-[#1CB0F6]" />
-                <span>オンライン稼働中の部屋一覧</span>
+                <Wifi className="w-4 h-4 text-[#1CB0F6]" />
+                <span>オンライン稼働中の部屋</span>
               </span>
-              <span className="text-xs text-[#AFAFAF]">{rooms.length}件の部屋</span>
+              <span className="text-xs text-[#AFAFAF]">{filteredRooms.length}件の部屋</span>
             </div>
 
             {/* Room List */}
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-              {rooms.length === 0 ? (
+              {filteredRooms.length === 0 ? (
                 <div className="text-center py-8 text-sm font-bold text-[#AFAFAF] duo-card p-6">
                   現在稼働中の部屋がありません。<br />
                   「部屋を作る」から新しい部屋を作成してください！
                 </div>
               ) : (
-                rooms.map((room) => (
-                  <div
-                    key={room.id}
-                    className="duo-card p-4 rounded-2xl hover:border-[#1CB0F6] transition-all bg-[#FAFAFA]"
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <div className="text-base font-black text-[#3C3C3C]">
-                          {room.name}
+                filteredRooms.map((room) => {
+                  const isFull = room.players.length >= room.maxPlayers;
+                  const isMyRoom = room.players.some((p) => p.id === currentUser.id);
+
+                  return (
+                    <div
+                      key={room.id}
+                      className={`duo-card p-4 rounded-2xl transition-all ${
+                        isMyRoom ? 'border-[#58CC02] bg-[#F7FFF0]' : 'hover:border-[#1CB0F6] bg-[#FAFAFA]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <div className="text-base font-black text-[#3C3C3C] flex items-center gap-2">
+                            <span>{room.name}</span>
+                            {isMyRoom && (
+                              <span className="text-[10px] font-black bg-[#58CC02] text-white px-2 py-0.5 rounded-full">
+                                作成した部屋
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs font-bold text-[#AFAFAF] flex items-center gap-2 mt-0.5">
+                            <span className="flex items-center gap-1 text-[#58A700]">
+                              <Crown className="w-3.5 h-3.5" />
+                              {room.players.find((p) => p.isLeader)?.name || 'リーダー'}
+                            </span>
+                            <span>•</span>
+                            <span>定員 {room.players.length}/{room.maxPlayers}人</span>
+                          </div>
                         </div>
-                        <div className="text-xs font-bold text-[#AFAFAF] flex items-center gap-2 mt-0.5">
-                          <span className="flex items-center gap-1 text-[#58A700]">
-                            <Crown className="w-3.5 h-3.5" />
-                            {room.players.find((p) => p.isLeader)?.name || 'リーダー'}
-                          </span>
-                          <span>•</span>
-                          <span>定員 {room.players.length}/{room.maxPlayers}人</span>
-                        </div>
+
+                        <button
+                          onClick={() => handleJoinRoom(room)}
+                          disabled={isFull && !isMyRoom}
+                          className={`px-4 py-2 rounded-xl text-xs font-black shrink-0 cursor-pointer ${
+                            isMyRoom
+                              ? 'duo-btn duo-btn-green'
+                              : isFull
+                              ? 'bg-[#E5E5E5] text-[#AFAFAF] cursor-not-allowed'
+                              : 'duo-btn duo-btn-blue'
+                          }`}
+                        >
+                          {isMyRoom ? 'ロビーへ' : isFull ? '満員' : '参加する'}
+                        </button>
                       </div>
 
-                      <button
-                        onClick={() => handleJoinRoom(room)}
-                        disabled={room.players.length >= room.maxPlayers}
-                        className="duo-btn duo-btn-blue px-4 py-2 rounded-xl text-xs font-black shrink-0 disabled:opacity-50 cursor-pointer"
-                      >
-                        {room.players.length >= room.maxPlayers ? '満員' : '参加する'}
-                      </button>
+                      {/* Modifiers tags in room */}
+                      {room.modifiers.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-[#E5E5E5]">
+                          {room.modifiers.map((m) => (
+                            <span
+                              key={m.id}
+                              className="text-[11px] font-black bg-[#EBF7FD] text-[#1CB0F6] border border-[#BAE3F8] px-2 py-0.5 rounded-md"
+                            >
+                              {m.icon} {m.name} (+{m.bonusPercent}%)
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-
-                    {/* Modifiers tags in room */}
-                    {room.modifiers.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-[#E5E5E5]">
-                        {room.modifiers.map((m) => (
-                          <span
-                            key={m.id}
-                            className="text-[11px] font-black bg-[#EBF7FD] text-[#1CB0F6] border border-[#BAE3F8] px-2 py-0.5 rounded-md"
-                          >
-                            {m.icon} {m.name} (+{m.bonusPercent}%)
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -615,10 +717,17 @@ export function BattleLobbyModal({
                     {activeRoom.name}
                   </h3>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex flex-col items-end gap-1">
                   <span className="text-xs font-black bg-[#EBF7FD] text-[#1CB0F6] px-2.5 py-1 rounded-full border border-[#BAE3F8]">
                     {activeRoom.players.length}/{activeRoom.maxPlayers}人
                   </span>
+                  <button
+                    onClick={handleCopyInvite}
+                    className="text-[11px] font-black text-[#1CB0F6] hover:underline flex items-center gap-1 cursor-pointer bg-white px-2 py-0.5 rounded-md border border-[#BAE3F8]"
+                  >
+                    {copiedCode ? <Check className="w-3 h-3 text-[#58CC02]" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedCode ? 'コピー完了！' : '招待URLをコピー'}</span>
+                  </button>
                 </div>
               </div>
 
