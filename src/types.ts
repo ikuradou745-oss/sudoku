@@ -29,6 +29,7 @@ export interface Modifier {
 }
 
 export interface UserStats {
+  userId?: string;
   energy: number; // ⚡️
   streak: number;
   lastDailyDate: string | null; // e.g. "2026-09-05"

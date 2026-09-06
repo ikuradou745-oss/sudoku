@@ -181,12 +181,20 @@ export function BattleQuizSession({
 
     const ranked = sorted.map((p, idx) => {
       const rank = idx + 1;
-      let baseReward = 8;
-      if (rank === 1) baseReward = 45;
-      else if (rank === 2) baseReward = 28;
-      else if (rank === 3) baseReward = 16;
+      let baseReward = 0;
+      if (rank === 1) {
+        baseReward = 5; // 1位: 5⚡️
+      } else if (rank === 2) {
+        baseReward = 1; // 2位: 1⚡️
+      } else {
+        baseReward = 0; // 3位以下: 0⚡️
+      }
 
-      const totalReward = Math.round(baseReward * totalBonusMultiplier);
+      if (p.isKO) {
+        baseReward = 0;
+      }
+
+      const totalReward = Math.max(0, Math.round(baseReward * totalBonusMultiplier));
 
       return {
         player: p,

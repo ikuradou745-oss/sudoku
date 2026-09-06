@@ -45,29 +45,6 @@ const rooms = new Map<string, BattleRoom>();
 // Client Connection Context
 const clientMeta = new Map<WebSocket, { playerId: string; roomId: string | null; name: string }>();
 
-// Initial Public Room
-const defaultRoom: BattleRoom = {
-  id: 'room_novice_public',
-  name: '⚡️ 初心者歓迎！オンライン対戦部屋',
-  leaderId: 'system_host',
-  maxPlayers: 6,
-  players: [],
-  modifiers: [
-    {
-      id: 'speedRush',
-      name: 'スピードラッシュ',
-      description: '回答速度に応じてさらにボーナス！',
-      icon: '⚡️',
-      bonusPercent: 30,
-      active: true,
-    }
-  ],
-  status: 'waiting',
-  createdAt: Date.now(),
-  seed: 12345,
-};
-rooms.set(defaultRoom.id, defaultRoom);
-
 async function startServer() {
   const app = express();
   const server = http.createServer(app);
@@ -234,13 +211,14 @@ async function startServer() {
               if (targetRoom.leaderId === playerId && targetRoom.players.length > 0) {
                 targetRoom.players[0].isLeader = true;
                 targetRoom.leaderId = targetRoom.players[0].id;
-              } else if (targetRoom.players.length === 0 && targetRoom.id !== 'room_novice_public') {
+              } else if (targetRoom.players.length === 0) {
                 rooms.delete(targetRoom.id);
               }
 
               if (meta) meta.roomId = null;
 
               broadcastToRoom(roomId, { type: 'ROOM_UPDATED', room: targetRoom });
+              broadcastToAll({ type: 'ROOM_UPDATED', room: targetRoom });
               broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
             }
             break;
@@ -312,17 +290,18 @@ async function startServer() {
 
     ws.on('close', () => {
       const meta = clientMeta.get(ws);
-      if (meta && meta.roomId) {
+      if (meta && meta.roomId && meta.playerId) {
         const targetRoom = rooms.get(meta.roomId);
         if (targetRoom) {
           targetRoom.players = targetRoom.players.filter((p) => p.id !== meta.playerId);
           if (targetRoom.leaderId === meta.playerId && targetRoom.players.length > 0) {
             targetRoom.players[0].isLeader = true;
             targetRoom.leaderId = targetRoom.players[0].id;
-          } else if (targetRoom.players.length === 0 && targetRoom.id !== 'room_novice_public') {
+          } else if (targetRoom.players.length === 0) {
             rooms.delete(targetRoom.id);
           }
           broadcastToRoom(meta.roomId, { type: 'ROOM_UPDATED', room: targetRoom });
+          broadcastToAll({ type: 'ROOM_UPDATED', room: targetRoom });
           broadcastToAll({ type: 'ROOMS_LIST', rooms: getRoomsList() });
         }
       }

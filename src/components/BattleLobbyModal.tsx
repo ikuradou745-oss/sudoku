@@ -218,7 +218,14 @@ export function BattleLobbyModal({
       mistakes: 0,
     };
 
-    setActiveRoom(room);
+    const updatedWithMe: BattleRoom = {
+      ...room,
+      players: room.players.some((p) => p.id === myPlayer.id)
+        ? room.players
+        : [...room.players, myPlayer],
+    };
+
+    setActiveRoom(updatedWithMe);
     setView('waiting_room');
     realtimeMultiplayer.joinRoom(room.id, myPlayer);
   };

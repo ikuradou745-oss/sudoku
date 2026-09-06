@@ -255,7 +255,7 @@ export function App() {
         {showBattleLobbyModal && (
           <BattleLobbyModal
             currentUser={{
-              id: 'user_me',
+              id: stats.userId || `u_${Date.now()}`,
               name: stats.userName || 'うおリンゴ会員',
               avatarUrl: stats.avatarUrl || null,
             }}

@@ -7,7 +7,9 @@ export function getStoredUserStats(): UserStats {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const userId = parsed.userId || `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
       return {
+        userId,
         energy: typeof parsed.energy === 'number' ? parsed.energy : 10,
         streak: typeof parsed.streak === 'number' ? parsed.streak : 1,
         lastDailyDate: parsed.lastDailyDate || null,
@@ -15,12 +17,15 @@ export function getStoredUserStats(): UserStats {
         perfectSessions: parsed.perfectSessions || 0,
         userName: parsed.userName || 'うおリンゴ会員',
         avatarUrl: parsed.avatarUrl || null,
+        battleWins: parsed.battleWins || 0,
       };
     }
   } catch {
     // Ignore error
   }
+  const newUserId = `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
   return {
+    userId: newUserId,
     energy: 10,
     streak: 1,
     lastDailyDate: null,
@@ -28,6 +33,7 @@ export function getStoredUserStats(): UserStats {
     perfectSessions: 0,
     userName: 'うおリンゴ会員',
     avatarUrl: null,
+    battleWins: 0,
   };
 }
 
