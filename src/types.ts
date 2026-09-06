@@ -36,4 +36,31 @@ export interface UserStats {
   perfectSessions: number;
   userName?: string; // Max 12 chars
   avatarUrl?: string | null; // Base64 data URL from pixel/freehand canvas
+  battleWins?: number;
+}
+
+export interface RoomPlayer {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  isLeader: boolean;
+  isReady: boolean;
+  isBot?: boolean;
+  progress?: number; // 0 to 5
+  score?: number;
+  mistakes?: number;
+  finished?: boolean;
+  finishTime?: number;
+}
+
+export interface BattleRoom {
+  id: string;
+  name: string;
+  leaderId: string;
+  maxPlayers: number; // 2 to 8
+  players: RoomPlayer[];
+  modifiers: Modifier[];
+  status: 'waiting' | 'countdown' | 'in_game' | 'finished';
+  createdAt: number;
+  seed: number;
 }

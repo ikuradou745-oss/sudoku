@@ -4,8 +4,11 @@ import { UnderPreparationScreen } from './components/UnderPreparationScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { ModifierModal } from './components/ModifierModal';
 import { ProfileModal } from './components/ProfileModal';
+import { BattleLobbyModal } from './components/BattleLobbyModal';
+import { RankedMatchModal } from './components/RankedMatchModal';
+import { BattleQuizSession } from './components/BattleQuizSession';
 import { QuizSession } from './components/QuizSession';
-import { UserStats, Modifier, Question } from './types';
+import { UserStats, Modifier, Question, BattleRoom, RoomPlayer } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
   getStoredUserStats, 
@@ -15,7 +18,7 @@ import {
 import { checkExistingSession, clearGateSession } from './utils/security';
 import { audio } from './utils/audio';
 
-type AppPhase = 'gate' | 'preparing' | 'home' | 'quiz';
+type AppPhase = 'gate' | 'preparing' | 'home' | 'quiz' | 'battle';
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('gate');
@@ -25,9 +28,17 @@ export function App() {
   // Modals & Quiz Config
   const [showModifierModal, setShowModifierModal] = useState<boolean>(false);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [showBattleLobbyModal, setShowBattleLobbyModal] = useState<boolean>(false);
+  const [showRankedModal, setShowRankedModal] = useState<boolean>(false);
+
+  // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [activeModifiers, setActiveModifiers] = useState<Modifier[]>([]);
+
+  // Battle State
+  const [currentBattleRoom, setCurrentBattleRoom] = useState<BattleRoom | null>(null);
+  const [myBattlePlayer, setMyBattlePlayer] = useState<RoomPlayer | null>(null);
 
   useEffect(() => {
     // If gate was previously unlocked in this browser (stored in localStorage)
@@ -109,7 +120,7 @@ export function App() {
     setPhase('quiz');
   };
 
-  // 6. Handle Quiz Finish
+  // 6. Handle Solo Quiz Finish
   const handleQuizFinish = (result: {
     completed: boolean;
     reward: number;
@@ -132,6 +143,30 @@ export function App() {
         };
       });
     }
+    setPhase('home');
+  };
+
+  // 7. Start Battle from Lobby
+  const handleStartBattleMatch = (room: BattleRoom, player: RoomPlayer) => {
+    setShowBattleLobbyModal(false);
+    setCurrentBattleRoom(room);
+    setMyBattlePlayer(player);
+    setPhase('battle');
+  };
+
+  // 8. Finish Battle Match (Rank-based reward)
+  const handleFinishBattle = (result: { rank: number; reward: number; score: number }) => {
+    updateStats((prev) => ({
+      ...prev,
+      energy: prev.energy + result.reward,
+      completedSessions: prev.completedSessions + 1,
+      battleWins: (prev.battleWins || 0) + (result.rank === 1 ? 1 : 0),
+    }));
+  };
+
+  const handleExitBattle = () => {
+    setCurrentBattleRoom(null);
+    setMyBattlePlayer(null);
     setPhase('home');
   };
 
@@ -172,6 +207,7 @@ export function App() {
             stats={stats}
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
+            onStartBattle={() => setShowBattleLobbyModal(true)}
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             soundEnabled={soundEnabled}
@@ -188,7 +224,16 @@ export function App() {
           />
         )}
 
-        {/* Modifier Modal */}
+        {phase === 'battle' && currentBattleRoom && myBattlePlayer && (
+          <BattleQuizSession
+            room={currentBattleRoom}
+            player={myBattlePlayer}
+            onFinishBattle={handleFinishBattle}
+            onExit={handleExitBattle}
+          />
+        )}
+
+        {/* Solo Modifier Modal */}
         {showModifierModal && (
           <ModifierModal
             onClose={() => setShowModifierModal(false)}
@@ -203,6 +248,33 @@ export function App() {
             currentAvatar={stats.avatarUrl || null}
             onSave={handleSaveProfile}
             onClose={() => setShowProfileModal(false)}
+          />
+        )}
+
+        {/* Battle Lobby Modal */}
+        {showBattleLobbyModal && (
+          <BattleLobbyModal
+            currentUser={{
+              id: 'user_me',
+              name: stats.userName || 'うおリンゴ会員',
+              avatarUrl: stats.avatarUrl || null,
+            }}
+            onStartBattle={handleStartBattleMatch}
+            onOpenRanked={() => {
+              setShowBattleLobbyModal(false);
+              setShowRankedModal(true);
+            }}
+            onClose={() => setShowBattleLobbyModal(false)}
+          />
+        )}
+
+        {/* Ranked Match Modal (準備中) */}
+        {showRankedModal && (
+          <RankedMatchModal
+            onClose={() => {
+              setShowRankedModal(false);
+              setShowBattleLobbyModal(true);
+            }}
           />
         )}
       </main>

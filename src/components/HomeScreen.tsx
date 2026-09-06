@@ -8,7 +8,8 @@ import {
   CheckCircle2, 
   ArrowRight,
   Settings,
-  User
+  User,
+  Swords
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { isDailyCompletedToday, getNextResetTimeString } from '../utils/storage';
@@ -18,6 +19,7 @@ interface HomeScreenProps {
   stats: UserStats;
   onStartPractice: () => void;
   onStartDaily: () => void;
+  onStartBattle: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
   soundEnabled: boolean;
@@ -27,6 +29,7 @@ export function HomeScreen({
   stats,
   onStartPractice,
   onStartDaily,
+  onStartBattle,
   onToggleSound,
   onOpenProfile,
   soundEnabled,
@@ -121,7 +124,7 @@ export function HomeScreen({
       </header>
 
       {/* App Branding & User Greeting */}
-      <div className="text-center mb-10">
+      <div className="text-center mb-8">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF7FD] border border-[#BDE3F8] text-[#1CB0F6] text-xs font-black mb-3">
           <Sparkles className="w-3.5 h-3.5" />
           <span>英語学習 (英検4〜5級・並べ替え)</span>
@@ -135,7 +138,7 @@ export function HomeScreen({
       </div>
 
       {/* Main Action Buttons */}
-      <div className="space-y-4">
+      <div className="space-y-3.5">
         {/* 1. 学習を始める */}
         <button
           id="start-practice-btn"
@@ -143,14 +146,14 @@ export function HomeScreen({
             audio.playTap();
             onStartPractice();
           }}
-          className="duo-btn duo-btn-green w-full p-5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
+          className="duo-btn duo-btn-green w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
         >
-          <div className="flex items-center gap-4 text-left">
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
-              <BookOpen className="w-6 h-6" />
+          <div className="flex items-center gap-3.5 text-left">
+            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+              <BookOpen className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xl font-black text-white">
+              <div className="text-lg font-black text-white">
                 学習を始める
               </div>
               <div className="text-xs font-bold text-white/90">
@@ -158,11 +161,11 @@ export function HomeScreen({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
               +5⚡️〜
             </span>
-            <ArrowRight className="w-5 h-5 text-white transform group-hover:translate-x-1 transition-transform" />
+            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>
         </button>
 
@@ -175,20 +178,20 @@ export function HomeScreen({
             onStartDaily();
           }}
           disabled={dailyDone}
-          className={`w-full p-5 rounded-2xl flex items-center justify-between text-left transition-all cursor-pointer ${
+          className={`w-full p-4.5 rounded-2xl flex items-center justify-between text-left transition-all cursor-pointer ${
             dailyDone
               ? 'duo-btn duo-btn-gray opacity-70 cursor-not-allowed'
               : 'duo-btn duo-btn-blue text-white shadow-xs group'
           }`}
         >
-          <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+          <div className="flex items-center gap-3.5">
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
               dailyDone ? 'bg-[#E5E5E5] text-[#AFAFAF]' : 'bg-white/20 text-white'
             }`}>
-              <Calendar className="w-6 h-6" />
+              <Calendar className="w-5 h-5" />
             </div>
             <div>
-              <div className={`text-xl font-black ${dailyDone ? 'text-[#777777]' : 'text-white'}`}>
+              <div className={`text-lg font-black ${dailyDone ? 'text-[#777777]' : 'text-white'}`}>
                 デイリーセット
               </div>
               <div className={`text-xs font-bold ${dailyDone ? 'text-[#AFAFAF]' : 'text-white/90'}`}>
@@ -197,7 +200,7 @@ export function HomeScreen({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {dailyDone ? (
               <span className="flex items-center gap-1 text-xs font-black bg-[#E5E5E5] text-[#58A700] px-2.5 py-1 rounded-full">
                 <CheckCircle2 className="w-3.5 h-3.5 text-[#58CC02]" />
@@ -208,9 +211,43 @@ export function HomeScreen({
                 <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
                   15⚡️
                 </span>
-                <ArrowRight className="w-5 h-5 text-white transform group-hover:translate-x-1 transition-transform" />
+                <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
               </>
             )}
+          </div>
+        </button>
+
+        {/* 3. 対戦 (オンライン) */}
+        <button
+          id="start-battle-btn"
+          onClick={() => {
+            audio.playTap();
+            onStartBattle();
+          }}
+          className="duo-btn duo-btn-red w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 text-left">
+            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+              <Swords className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-lg font-black text-white flex items-center gap-2">
+                <span>対戦</span>
+                <span className="text-[10px] font-black bg-white/30 text-white px-1.5 py-0.2 rounded-md">
+                  オンライン
+                </span>
+              </div>
+              <div className="text-xs font-bold text-white/90">
+                部屋を探す・作る・順位別報酬！
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
+              +6〜30⚡️
+            </span>
+            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>
         </button>
       </div>
