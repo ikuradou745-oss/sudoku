@@ -32,20 +32,20 @@ export type MultiplayerEvent =
 
 type EventListener = (event: MultiplayerEvent) => void;
 
-// Public ultra-reliable WSS MQTT brokers for real-time web apps
+// Public WebSocket MQTT brokers (WSS - works seamlessly over HTTPS / GitHub Pages)
 const MQTT_BROKERS = [
   'wss://broker.emqx.io:8084/mqtt',
   'wss://broker.hivemq.com:8884/mqtt',
   'wss://test.mosquitto.org:8081',
 ];
 
-const TOPIC_PREFIX = 'uolingo_app/v2';
-const ANNOUNCE_TOPIC = `${TOPIC_PREFIX}/rooms/announce`;
-const DISCOVERY_TOPIC = `${TOPIC_PREFIX}/rooms/discovery`;
-const ROOM_EVENT_TOPIC = (roomId: string) => `${TOPIC_PREFIX}/room/${roomId}/events`;
-const ROOM_PROGRESS_TOPIC = (roomId: string) => `${TOPIC_PREFIX}/room/${roomId}/progress`;
+const TOPIC_PREFIX = 'uolingo_battle_v3';
+const ALL_TOPICS = `${TOPIC_PREFIX}/#`;
+const ANNOUNCE_TOPIC = `${TOPIC_PREFIX}/announce`;
+const DISCOVERY_TOPIC = `${TOPIC_PREFIX}/discovery`;
+const ROOM_TOPIC = (roomId: string) => `${TOPIC_PREFIX}/room/${roomId}`;
 
-const STORAGE_ROOMS_KEY = 'uolingo_cached_rooms_v2';
+const STORAGE_ROOMS_KEY = 'uolingo_cached_rooms_v3';
 
 class RealtimeMultiplayerService {
   private client: MqttClient | null = null;
@@ -59,9 +59,9 @@ class RealtimeMultiplayerService {
   private currentUserName: string = '';
   private activeRoomId: string | null = null;
 
-  // Active known rooms (synced across network & heartbeats)
+  // Active rooms known to this client
   private knownRooms: Map<string, { room: BattleRoom; lastSeen: number }> = new Map();
-  // Rooms created locally by this client that we are responsible for announcing
+  // Rooms created locally by this client (this client is the host)
   private myHostedRooms: Map<string, BattleRoom> = new Map();
 
   private heartbeatTimer: any = null;
@@ -72,7 +72,6 @@ class RealtimeMultiplayerService {
     if (typeof window !== 'undefined') {
       this.initBroadcastChannel();
       this.loadCachedRooms();
-      this.initDemoRooms();
       this.startCleanupLoop();
       this.tryConnectNativeWs();
       this.connect();
@@ -81,7 +80,7 @@ class RealtimeMultiplayerService {
 
   private tryConnectNativeWs() {
     try {
-      if (typeof window !== 'undefined' && window.location) {
+      if (typeof window !== 'undefined' && window.location && window.location.host) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
         const ws = new WebSocket(wsUrl);
@@ -101,28 +100,23 @@ class RealtimeMultiplayerService {
             const data = JSON.parse(event.data);
             if (data.type === 'ROOMS_LIST' && Array.isArray(data.rooms)) {
               data.rooms.forEach((r: BattleRoom) => {
-                this.knownRooms.set(r.id, { room: r, lastSeen: Date.now() });
-                if (this.activeRoomId === r.id) {
-                  this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: r });
-                }
+                this.mergeRoom(r);
               });
-              this.saveCachedRooms();
               this.emitRoomsList();
             } else if (data.type === 'ROOM_UPDATED' && data.room) {
-              this.knownRooms.set(data.room.id, { room: data.room, lastSeen: Date.now() });
-              this.saveCachedRooms();
+              this.mergeRoom(data.room);
               this.handleIncomingEvent(data);
               this.emitRoomsList();
             } else {
               this.handleIncomingEvent(data);
             }
           } catch {
-            // Ignore parse errors
+            // Ignore
           }
         };
 
         ws.onerror = () => {
-          // Native WS not available (e.g. running on GitHub Pages static host), MQTT will handle it
+          // Fallback to MQTT
         };
 
         ws.onclose = () => {
@@ -130,27 +124,26 @@ class RealtimeMultiplayerService {
         };
       }
     } catch {
-      // Ignored
+      // Ignore
     }
   }
 
   private initBroadcastChannel() {
     try {
       if (typeof BroadcastChannel !== 'undefined') {
-        this.broadcastChannel = new BroadcastChannel('uolingo_local_sync_v2');
+        this.broadcastChannel = new BroadcastChannel('uolingo_battle_sync_v3');
         this.broadcastChannel.onmessage = (e) => {
           if (e.data) {
             const event = e.data as MultiplayerEvent;
             if (event.type === 'ROOM_UPDATED' && event.room) {
-              this.knownRooms.set(event.room.id, { room: event.room, lastSeen: Date.now() });
-              this.saveCachedRooms();
+              this.mergeRoom(event.room);
             }
-            this.handleIncomingEvent(event);
+            this.handleIncomingEvent(event, false);
           }
         };
       }
     } catch {
-      // Ignored if unsupported
+      // Ignored
     }
   }
 
@@ -161,14 +154,14 @@ class RealtimeMultiplayerService {
         const parsed = JSON.parse(raw) as BattleRoom[];
         const now = Date.now();
         parsed.forEach((r) => {
-          // Keep recently cached rooms (within 10 minutes)
-          if (now - r.createdAt < 1000 * 60 * 10) {
+          // Only keep rooms younger than 5 minutes
+          if (now - r.createdAt < 1000 * 60 * 5) {
             this.knownRooms.set(r.id, { room: r, lastSeen: now });
           }
         });
       }
     } catch {
-      // Ignore storage errors
+      // Ignore
     }
   }
 
@@ -177,38 +170,17 @@ class RealtimeMultiplayerService {
       const rooms = this.getActiveRoomsList();
       localStorage.setItem(STORAGE_ROOMS_KEY, JSON.stringify(rooms));
     } catch {
-      // Ignore storage errors
+      // Ignore
     }
   }
 
-  private initDemoRooms() {
-    const demoRoomId = 'room_public_guide';
-    if (!this.knownRooms.has(demoRoomId)) {
-      const guideRoom: BattleRoom = {
-        id: demoRoomId,
-        name: '初心者歓迎！公開ルーム',
-        leaderId: 'bot_guide_leader',
-        maxPlayers: 4,
-        modifiers: [],
-        seed: 7777,
-        status: 'waiting',
-        players: [
-          {
-            id: 'bot_guide_leader',
-            name: 'うおリンゴ案内人🤖',
-            avatarUrl: null,
-            isLeader: true,
-            isReady: true,
-            isBot: true,
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-          },
-        ],
-        createdAt: Date.now(),
-      };
-      this.knownRooms.set(demoRoomId, { room: guideRoom, lastSeen: Date.now() + 1000 * 60 * 60 * 24 });
+  private mergeRoom(room: BattleRoom) {
+    if (!room || !room.id) return;
+    this.knownRooms.set(room.id, { room, lastSeen: Date.now() });
+    if (this.myHostedRooms.has(room.id)) {
+      this.myHostedRooms.set(room.id, room);
     }
+    this.saveCachedRooms();
   }
 
   public connect() {
@@ -218,13 +190,13 @@ class RealtimeMultiplayerService {
     const brokerUrl = MQTT_BROKERS[this.currentBrokerIndex % MQTT_BROKERS.length];
 
     try {
-      const clientId = `uolingo_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`;
+      const clientId = `uolingo_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
       const client = mqtt.connect(brokerUrl, {
         clientId,
         clean: true,
-        connectTimeout: 5000,
-        reconnectPeriod: 3000,
-        keepalive: 30,
+        connectTimeout: 6000,
+        reconnectPeriod: 2500,
+        keepalive: 20,
       });
 
       this.client = client;
@@ -234,18 +206,13 @@ class RealtimeMultiplayerService {
         this.isConnecting = false;
         this.notifyStatus(true, brokerUrl);
 
-        // Subscribe to global room announcements & discoveries
-        client.subscribe([ANNOUNCE_TOPIC, DISCOVERY_TOPIC], { qos: 0 }, (err) => {
+        // Subscribe to ALL topics in one wildcard to ensure NO messages are missed
+        client.subscribe(ALL_TOPICS, { qos: 0 }, (err) => {
           if (!err) {
-            // Ask existing hosts to announce their active rooms
+            // Ask any active room hosts to broadcast their rooms
             this.publish(DISCOVERY_TOPIC, { type: 'DISCOVERY_REQUEST', from: clientId });
           }
         });
-
-        // If in an active room, resubscribe to that room
-        if (this.activeRoomId) {
-          this.subscribeToRoom(this.activeRoomId);
-        }
 
         // Start heartbeat to keep hosted rooms alive
         this.startHeartbeatLoop();
@@ -256,8 +223,8 @@ class RealtimeMultiplayerService {
         try {
           const parsed = JSON.parse(payload.toString());
           this.handleNetworkMessage(topic, parsed);
-        } catch (e) {
-          console.debug('Failed to parse incoming MQTT message', e);
+        } catch {
+          // Ignore
         }
       });
 
@@ -297,151 +264,174 @@ class RealtimeMultiplayerService {
     if (this.client && this.isConnected) {
       try {
         this.client.publish(topic, JSON.stringify(data), { qos: 0 });
-      } catch (e) {
-        console.debug('Failed to publish MQTT message', e);
+      } catch {
+        // Ignore
       }
+    }
+    // Also send to local broadcast channel
+    try {
+      this.broadcastChannel?.postMessage(data);
+    } catch {
+      // Ignore
     }
   }
 
-  private subscribeToRoom(roomId: string) {
-    if (!this.client || !this.isConnected) return;
-    this.client.subscribe([ROOM_EVENT_TOPIC(roomId), ROOM_PROGRESS_TOPIC(roomId)], { qos: 0 });
-  }
-
-  private unsubscribeFromRoom(roomId: string) {
-    if (!this.client || !this.isConnected) return;
-    this.client.unsubscribe([ROOM_EVENT_TOPIC(roomId), ROOM_PROGRESS_TOPIC(roomId)]);
-  }
-
-  private handleNetworkMessage(topic: string, data: any) {
+  private handleNetworkMessage(_topic: string, data: any) {
     if (!data || !data.type) return;
 
-    // 1. Room announcements from any player across the world
-    if (topic === ANNOUNCE_TOPIC) {
-      if (data.type === 'ROOM_ANNOUNCE' && data.room) {
-        const room = data.room as BattleRoom;
-        this.knownRooms.set(room.id, { room, lastSeen: Date.now() });
-        this.saveCachedRooms();
-        this.emitRoomsList();
-
-        // If this matches our active room, update member list immediately
-        if (this.activeRoomId === room.id) {
-          this.handleIncomingEvent({ type: 'ROOM_UPDATED', room });
-        }
-      } else if (data.type === 'ROOM_CLOSED' && data.roomId) {
-        this.knownRooms.delete(data.roomId);
-        this.saveCachedRooms();
-        this.emitRoomsList();
-      }
+    // 1. Room discovery request
+    if (data.type === 'DISCOVERY_REQUEST') {
+      // If we host rooms, announce them immediately
+      this.myHostedRooms.forEach((room) => {
+        this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room });
+      });
       return;
     }
 
-    // 2. Someone entered lobby and requested a list of active rooms
-    if (topic === DISCOVERY_TOPIC) {
-      if (data.type === 'DISCOVERY_REQUEST') {
-        // If we are hosting any rooms, announce them immediately
-        this.myHostedRooms.forEach((room) => {
-          this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room });
-        });
-      }
-      return;
-    }
+    // 2. Global room announcement
+    if (data.type === 'ROOM_ANNOUNCE' && data.room) {
+      const room = data.room as BattleRoom;
+      this.mergeRoom(room);
+      this.emitRoomsList();
 
-    // 3. Room-specific events (joins, kicks, start countdown, updates)
-    if (topic.includes('/room/')) {
-      if (data.type === 'ROOM_UPDATED' && data.room) {
-        const room = data.room as BattleRoom;
-        this.knownRooms.set(room.id, { room, lastSeen: Date.now() });
-        if (this.myHostedRooms.has(room.id)) {
-          this.myHostedRooms.set(room.id, room);
-        }
-        this.saveCachedRooms();
+      if (this.activeRoomId === room.id) {
         this.handleIncomingEvent({ type: 'ROOM_UPDATED', room });
-        this.emitRoomsList();
-        return;
       }
-
-      if (data.type === 'JOIN_REQUEST' && data.roomId && data.player) {
-        const roomEntry = this.knownRooms.get(data.roomId);
-        const currentRoom = roomEntry ? roomEntry.room : this.myHostedRooms.get(data.roomId);
-
-        if (currentRoom) {
-          const isAlreadyIn = currentRoom.players.some((p) => p.id === data.player.id);
-          if (!isAlreadyIn && currentRoom.players.length < currentRoom.maxPlayers) {
-            const updatedRoom: BattleRoom = {
-              ...currentRoom,
-              players: [...currentRoom.players, data.player],
-            };
-            this.knownRooms.set(updatedRoom.id, { room: updatedRoom, lastSeen: Date.now() });
-            if (this.myHostedRooms.has(updatedRoom.id)) {
-              this.myHostedRooms.set(updatedRoom.id, updatedRoom);
-            }
-            this.saveCachedRooms();
-            this.broadcastRoomUpdate(updatedRoom);
-          }
-        }
-        return;
-      }
-
-      if (data.type === 'LEAVE_REQUEST' && data.roomId && data.playerId) {
-        const roomEntry = this.knownRooms.get(data.roomId);
-        const currentRoom = roomEntry ? roomEntry.room : this.myHostedRooms.get(data.roomId);
-
-        if (currentRoom) {
-          const nextPlayers = currentRoom.players.filter((p) => p.id !== data.playerId);
-          if (nextPlayers.length === 0 && currentRoom.id !== 'room_public_guide') {
-            this.myHostedRooms.delete(data.roomId);
-            this.knownRooms.delete(data.roomId);
-            this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_CLOSED', roomId: data.roomId });
-          } else {
-            let nextLeaderId = currentRoom.leaderId;
-            if (currentRoom.leaderId === data.playerId && nextPlayers.length > 0) {
-              nextLeaderId = nextPlayers[0].id;
-              nextPlayers[0].isLeader = true;
-            }
-            const updatedRoom: BattleRoom = {
-              ...currentRoom,
-              leaderId: nextLeaderId,
-              players: nextPlayers,
-            };
-            this.knownRooms.set(updatedRoom.id, { room: updatedRoom, lastSeen: Date.now() });
-            if (this.myHostedRooms.has(updatedRoom.id)) {
-              this.myHostedRooms.set(updatedRoom.id, updatedRoom);
-            }
-            this.saveCachedRooms();
-            this.broadcastRoomUpdate(updatedRoom);
-          }
-        }
-        return;
-      }
-
-      if (data.type === 'KICK_REQUEST' && data.roomId && data.targetPlayerId) {
-        if (data.targetPlayerId === this.currentUserId) {
-          this.handleIncomingEvent({ type: 'KICKED_FROM_ROOM', roomId: data.roomId });
-        }
-        return;
-      }
-
-      if (data.type === 'COUNTDOWN_STARTED' && data.room) {
-        const room = data.room as BattleRoom;
-        this.knownRooms.set(room.id, { room, lastSeen: Date.now() });
-        this.handleIncomingEvent({ type: 'COUNTDOWN_STARTED', room });
-        return;
-      }
-
-      if (data.type === 'LIVE_PROGRESS_UPDATE' || data.type === 'MATCH_CLEARED_BY_WINNER') {
-        this.handleIncomingEvent(data as MultiplayerEvent);
-        return;
-      }
+      return;
     }
-  }
 
-  private broadcastRoomUpdate(room: BattleRoom) {
-    const payload: MultiplayerEvent = { type: 'ROOM_UPDATED', room };
-    this.publish(ROOM_EVENT_TOPIC(room.id), payload);
-    this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room });
-    this.handleIncomingEvent(payload);
-    this.emitRoomsList();
+    // 3. Room closed
+    if (data.type === 'ROOM_CLOSED' && data.roomId) {
+      this.knownRooms.delete(data.roomId);
+      this.myHostedRooms.delete(data.roomId);
+      this.saveCachedRooms();
+      this.emitRoomsList();
+
+      if (this.activeRoomId === data.roomId) {
+        this.handleIncomingEvent({ type: 'KICKED_FROM_ROOM', roomId: data.roomId });
+      }
+      return;
+    }
+
+    // 4. Join Request from another player
+    if (data.type === 'JOIN_REQUEST' && data.roomId && data.player) {
+      const targetRoomId = data.roomId as string;
+      const joiningPlayer = data.player as RoomPlayer;
+
+      // If we are the host of this room, handle the join authoritatively
+      if (this.myHostedRooms.has(targetRoomId)) {
+        const currentRoom = this.myHostedRooms.get(targetRoomId)!;
+        const exists = currentRoom.players.some((p) => p.id === joiningPlayer.id);
+
+        if (!exists && currentRoom.players.length < currentRoom.maxPlayers) {
+          const updatedRoom: BattleRoom = {
+            ...currentRoom,
+            players: [...currentRoom.players, { ...joiningPlayer, isLeader: false, isReady: true }],
+          };
+          this.myHostedRooms.set(targetRoomId, updatedRoom);
+          this.mergeRoom(updatedRoom);
+
+          // Broadcast updated room state to everyone
+          this.publish(ROOM_TOPIC(targetRoomId), { type: 'ROOM_UPDATED', room: updatedRoom });
+          this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room: updatedRoom });
+          this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: updatedRoom });
+          this.emitRoomsList();
+        }
+      } else {
+        // If not host, update local cache optimistically
+        const entry = this.knownRooms.get(targetRoomId);
+        if (entry) {
+          const exists = entry.room.players.some((p) => p.id === joiningPlayer.id);
+          if (!exists) {
+            const updatedRoom: BattleRoom = {
+              ...entry.room,
+              players: [...entry.room.players, joiningPlayer],
+            };
+            this.mergeRoom(updatedRoom);
+            if (this.activeRoomId === targetRoomId) {
+              this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: updatedRoom });
+            }
+            this.emitRoomsList();
+          }
+        }
+      }
+      return;
+    }
+
+    // 5. Leave Request
+    if (data.type === 'LEAVE_REQUEST' && data.roomId && data.playerId) {
+      const targetRoomId = data.roomId as string;
+      const leavingId = data.playerId as string;
+
+      if (this.myHostedRooms.has(targetRoomId)) {
+        const currentRoom = this.myHostedRooms.get(targetRoomId)!;
+        const nextPlayers = currentRoom.players.filter((p) => p.id !== leavingId);
+
+        if (nextPlayers.length === 0 || currentRoom.leaderId === leavingId) {
+          this.myHostedRooms.delete(targetRoomId);
+          this.knownRooms.delete(targetRoomId);
+          this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_CLOSED', roomId: targetRoomId });
+          this.emitRoomsList();
+        } else {
+          const updatedRoom: BattleRoom = { ...currentRoom, players: nextPlayers };
+          this.myHostedRooms.set(targetRoomId, updatedRoom);
+          this.mergeRoom(updatedRoom);
+
+          this.publish(ROOM_TOPIC(targetRoomId), { type: 'ROOM_UPDATED', room: updatedRoom });
+          this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room: updatedRoom });
+          this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: updatedRoom });
+          this.emitRoomsList();
+        }
+      } else {
+        const entry = this.knownRooms.get(targetRoomId);
+        if (entry) {
+          const nextPlayers = entry.room.players.filter((p) => p.id !== leavingId);
+          const updatedRoom = { ...entry.room, players: nextPlayers };
+          this.mergeRoom(updatedRoom);
+          if (this.activeRoomId === targetRoomId) {
+            this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: updatedRoom });
+          }
+          this.emitRoomsList();
+        }
+      }
+      return;
+    }
+
+    // 6. Direct Room Updated Broadcast
+    if (data.type === 'ROOM_UPDATED' && data.room) {
+      const room = data.room as BattleRoom;
+      this.mergeRoom(room);
+      if (this.activeRoomId === room.id) {
+        this.handleIncomingEvent({ type: 'ROOM_UPDATED', room });
+      }
+      this.emitRoomsList();
+      return;
+    }
+
+    // 7. Kick Request
+    if (data.type === 'KICK_REQUEST' && data.roomId && data.targetPlayerId) {
+      if (data.targetPlayerId === this.currentUserId) {
+        this.activeRoomId = null;
+        this.handleIncomingEvent({ type: 'KICKED_FROM_ROOM', roomId: data.roomId });
+      }
+      return;
+    }
+
+    // 8. Countdown Started
+    if (data.type === 'COUNTDOWN_STARTED' && data.room) {
+      const room = data.room as BattleRoom;
+      this.mergeRoom(room);
+      if (this.activeRoomId === room.id) {
+        this.handleIncomingEvent({ type: 'COUNTDOWN_STARTED', room });
+      }
+      return;
+    }
+
+    // 9. Live In-Game Progress & Match Winner Clear
+    if (data.type === 'LIVE_PROGRESS_UPDATE' || data.type === 'MATCH_CLEARED_BY_WINNER') {
+      this.handleIncomingEvent(data as MultiplayerEvent);
+      return;
+    }
   }
 
   private startHeartbeatLoop() {
@@ -452,7 +442,7 @@ class RealtimeMultiplayerService {
           this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room });
         });
       }
-    }, 1200);
+    }, 1000);
   }
 
   private startCleanupLoop() {
@@ -462,9 +452,8 @@ class RealtimeMultiplayerService {
       let changed = false;
 
       this.knownRooms.forEach((item, id) => {
-        if (id === 'room_public_guide') return;
-        // Expire inactive rooms after 3 minutes if not hosted by me
-        if (!this.myHostedRooms.has(id) && now - item.lastSeen > 1000 * 60 * 3) {
+        // Expire inactive rooms after 90 seconds if not hosted by me
+        if (!this.myHostedRooms.has(id) && now - item.lastSeen > 1000 * 90) {
           this.knownRooms.delete(id);
           changed = true;
         }
@@ -474,10 +463,10 @@ class RealtimeMultiplayerService {
         this.saveCachedRooms();
         this.emitRoomsList();
       }
-    }, 5000);
+    }, 4000);
   }
 
-  private getActiveRoomsList(): BattleRoom[] {
+  public getActiveRoomsList(): BattleRoom[] {
     return Array.from(this.knownRooms.values()).map((item) => item.room);
   }
 
@@ -486,26 +475,26 @@ class RealtimeMultiplayerService {
     this.handleIncomingEvent({ type: 'ROOMS_LIST', rooms });
   }
 
-  private handleIncomingEvent(event: MultiplayerEvent) {
+  private handleIncomingEvent(event: MultiplayerEvent, broadcastLocal = true) {
     this.listeners.forEach((listener) => {
       try {
         listener(event);
       } catch (e) {
-        console.debug('Error in multiplayer event listener', e);
+        console.debug('Listener error', e);
       }
     });
 
-    // Also sync to other tabs on same device
-    try {
-      this.broadcastChannel?.postMessage(event);
-    } catch {
-      // Ignore
+    if (broadcastLocal) {
+      try {
+        this.broadcastChannel?.postMessage(event);
+      } catch {
+        // Ignore
+      }
     }
   }
 
   public subscribe(callback: EventListener) {
     this.listeners.add(callback);
-    // Send current cached rooms immediately to the new subscriber
     callback({ type: 'ROOMS_LIST', rooms: this.getActiveRoomsList() });
     return () => {
       this.listeners.delete(callback);
@@ -521,9 +510,7 @@ class RealtimeMultiplayerService {
   }
 
   public fetchRooms() {
-    if (this.client && this.isConnected) {
-      this.publish(DISCOVERY_TOPIC, { type: 'DISCOVERY_REQUEST' });
-    }
+    this.publish(DISCOVERY_TOPIC, { type: 'DISCOVERY_REQUEST' });
     if (this.wsServer && this.wsServer.readyState === WebSocket.OPEN) {
       this.wsServer.send(JSON.stringify({ type: 'GET_ROOMS' }));
     }
@@ -553,11 +540,7 @@ class RealtimeMultiplayerService {
 
     this.activeRoomId = roomId;
     this.myHostedRooms.set(roomId, newRoom);
-    this.knownRooms.set(roomId, { room: newRoom, lastSeen: Date.now() });
-    this.saveCachedRooms();
-
-    // Subscribe to this room's MQTT topic
-    this.subscribeToRoom(roomId);
+    this.mergeRoom(newRoom);
 
     // Broadcast announcement globally
     this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room: newRoom });
@@ -574,7 +557,6 @@ class RealtimeMultiplayerService {
       );
     }
 
-    // Notify local UI
     this.handleIncomingEvent({ type: 'ROOM_CREATED', room: newRoom });
     this.emitRoomsList();
 
@@ -583,44 +565,47 @@ class RealtimeMultiplayerService {
 
   public joinRoom(roomId: string, player: RoomPlayer) {
     this.activeRoomId = roomId;
-    this.subscribeToRoom(roomId);
 
-    // If native WebSocket server is active, notify it
+    // Broadcast JOIN_REQUEST to room and announce channel
+    this.publish(ROOM_TOPIC(roomId), {
+      type: 'JOIN_REQUEST',
+      roomId,
+      player: { ...player, isLeader: false, isReady: true },
+    });
+    this.publish(ANNOUNCE_TOPIC, {
+      type: 'JOIN_REQUEST',
+      roomId,
+      player: { ...player, isLeader: false, isReady: true },
+    });
+
     if (this.wsServer && this.wsServer.readyState === WebSocket.OPEN) {
       this.wsServer.send(JSON.stringify({ type: 'JOIN_ROOM', roomId, player }));
     }
 
-    // Update local known room state immediately
-    const knownEntry = this.knownRooms.get(roomId);
-    const existingRoom = knownEntry ? knownEntry.room : this.myHostedRooms.get(roomId);
-
-    if (existingRoom) {
-      const players = existingRoom.players.filter((p) => p.id !== player.id);
-      players.push(player);
-      const updatedRoom: BattleRoom = { ...existingRoom, players };
-
-      this.knownRooms.set(roomId, { room: updatedRoom, lastSeen: Date.now() });
-      if (this.myHostedRooms.has(roomId)) {
-        this.myHostedRooms.set(roomId, updatedRoom);
-      }
-      this.saveCachedRooms();
-      this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: updatedRoom });
-      this.broadcastRoomUpdate(updatedRoom);
+    // Optimistically update local room
+    const entry = this.knownRooms.get(roomId);
+    if (entry) {
+      const players = entry.room.players.filter((p) => p.id !== player.id);
+      players.push({ ...player, isLeader: false, isReady: true });
+      const updated = { ...entry.room, players };
+      this.mergeRoom(updated);
+      this.handleIncomingEvent({ type: 'ROOM_UPDATED', room: updated });
+      this.emitRoomsList();
     }
-
-    // Broadcast JOIN_REQUEST to network
-    this.publish(ROOM_EVENT_TOPIC(roomId), {
-      type: 'JOIN_REQUEST',
-      roomId,
-      player,
-    });
-    this.publish(ANNOUNCE_TOPIC, {
-      type: 'ROOM_ANNOUNCE',
-      room: existingRoom,
-    });
   }
 
   public leaveRoom(roomId: string, playerId: string) {
+    this.publish(ROOM_TOPIC(roomId), {
+      type: 'LEAVE_REQUEST',
+      roomId,
+      playerId,
+    });
+    this.publish(ANNOUNCE_TOPIC, {
+      type: 'LEAVE_REQUEST',
+      roomId,
+      playerId,
+    });
+
     if (this.wsServer && this.wsServer.readyState === WebSocket.OPEN) {
       this.wsServer.send(JSON.stringify({ type: 'LEAVE_ROOM', roomId, playerId }));
     }
@@ -634,17 +619,12 @@ class RealtimeMultiplayerService {
         this.knownRooms.delete(roomId);
         this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_CLOSED', roomId });
       } else {
-        this.broadcastRoomUpdate(room);
+        this.mergeRoom(room);
+        this.publish(ROOM_TOPIC(roomId), { type: 'ROOM_UPDATED', room });
+        this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room });
       }
-    } else {
-      this.publish(ROOM_EVENT_TOPIC(roomId), {
-        type: 'LEAVE_REQUEST',
-        roomId,
-        playerId,
-      });
     }
 
-    this.unsubscribeFromRoom(roomId);
     if (this.activeRoomId === roomId) {
       this.activeRoomId = null;
     }
@@ -652,21 +632,25 @@ class RealtimeMultiplayerService {
   }
 
   public kickPlayer(roomId: string, targetPlayerId: string) {
+    this.publish(ROOM_TOPIC(roomId), {
+      type: 'KICK_REQUEST',
+      roomId,
+      targetPlayerId,
+    });
+
     if (this.wsServer && this.wsServer.readyState === WebSocket.OPEN) {
       this.wsServer.send(JSON.stringify({ type: 'KICK_PLAYER', roomId, targetPlayerId }));
     }
 
-    const roomEntry = this.knownRooms.get(roomId);
-    const hosted = this.myHostedRooms.get(roomId) || roomEntry?.room;
-    if (hosted) {
-      hosted.players = hosted.players.filter((p) => p.id !== targetPlayerId);
-      this.broadcastRoomUpdate(hosted);
-
-      this.publish(ROOM_EVENT_TOPIC(roomId), {
-        type: 'KICK_REQUEST',
-        roomId,
-        targetPlayerId,
-      });
+    if (this.myHostedRooms.has(roomId)) {
+      const room = this.myHostedRooms.get(roomId)!;
+      room.players = room.players.filter((p) => p.id !== targetPlayerId);
+      this.myHostedRooms.set(roomId, room);
+      this.mergeRoom(room);
+      this.publish(ROOM_TOPIC(roomId), { type: 'ROOM_UPDATED', room });
+      this.publish(ANNOUNCE_TOPIC, { type: 'ROOM_ANNOUNCE', room });
+      this.handleIncomingEvent({ type: 'ROOM_UPDATED', room });
+      this.emitRoomsList();
     }
   }
 
@@ -675,16 +659,14 @@ class RealtimeMultiplayerService {
       this.wsServer.send(JSON.stringify({ type: 'START_COUNTDOWN', roomId }));
     }
 
-    const known = this.knownRooms.get(roomId)?.room || this.myHostedRooms.get(roomId);
-    if (known) {
-      const updated: BattleRoom = { ...known, status: 'in_game' };
-      this.knownRooms.set(roomId, { room: updated, lastSeen: Date.now() });
-      if (this.myHostedRooms.has(roomId)) {
-        this.myHostedRooms.set(roomId, updated);
-      }
+    const room = this.myHostedRooms.get(roomId) || this.knownRooms.get(roomId)?.room;
+    if (room) {
+      const updated: BattleRoom = { ...room, status: 'in_game' };
+      this.mergeRoom(updated);
 
       const payload: MultiplayerEvent = { type: 'COUNTDOWN_STARTED', room: updated };
-      this.publish(ROOM_EVENT_TOPIC(roomId), payload);
+      this.publish(ROOM_TOPIC(roomId), payload);
+      this.publish(ANNOUNCE_TOPIC, payload);
       this.handleIncomingEvent(payload);
     }
   }
@@ -710,7 +692,7 @@ class RealtimeMultiplayerService {
       isKO,
       finished,
     };
-    this.publish(ROOM_PROGRESS_TOPIC(roomId), payload);
+    this.publish(`${TOPIC_PREFIX}/progress/${roomId}`, payload);
     this.handleIncomingEvent(payload);
   }
 
@@ -727,7 +709,7 @@ class RealtimeMultiplayerService {
       winnerName,
       winnerScore,
     };
-    this.publish(ROOM_PROGRESS_TOPIC(roomId), payload);
+    this.publish(`${TOPIC_PREFIX}/progress/${roomId}`, payload);
     this.handleIncomingEvent(payload);
   }
 }

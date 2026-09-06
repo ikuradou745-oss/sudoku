@@ -137,69 +137,8 @@ export function BattleQuizSession({
       }
     });
 
-    // Bot simulation logic
-    const hasBots = room.players.some((p) => p.isBot);
-    let botInterval: any = null;
-
-    if (hasBots) {
-      botInterval = setInterval(() => {
-        if (matchEndedRef.current) return;
-
-        setPlayersState((prev) => {
-          let botWinner: RoomPlayer | null = null;
-          let anyUpdated = false;
-
-          const updated = prev.map((p) => {
-            if (!p.isBot || p.finished || p.isKO) return p;
-
-            const roll = Math.random();
-            if (roll > 0.40) {
-              const currentProg = p.progress || 0;
-              const nextProg = currentProg + 1;
-              const isBotCorrect = Math.random() > 0.15;
-              const currentLives = p.lives ?? INITIAL_LIVES;
-              const nextLives = isBotCorrect ? currentLives : Math.max(0, currentLives - 1);
-              const botKO = nextLives <= 0;
-              const addedScore = isBotCorrect ? Math.floor(100 + Math.random() * 50) : 0;
-              const isCleared = !botKO && nextProg >= TOTAL_BATTLE_QUESTIONS;
-              const isFinished = botKO || isCleared;
-
-              anyUpdated = true;
-              const updatedBot = {
-                ...p,
-                progress: nextProg,
-                score: (p.score || 0) + addedScore,
-                mistakes: (p.mistakes || 0) + (isBotCorrect ? 0 : 1),
-                lives: nextLives,
-                isKO: botKO,
-                finished: isFinished,
-                finishTime: isFinished ? Date.now() : undefined,
-              };
-
-              if (isCleared && !botWinner && !matchEndedRef.current) {
-                botWinner = updatedBot;
-              }
-
-              return updatedBot;
-            }
-            return p;
-          });
-
-          if (botWinner && !matchEndedRef.current) {
-            const winner = botWinner as RoomPlayer;
-            setTimeout(() => {
-              endMatchInstantly(winner.id, winner.name, winner.score || 0, updated);
-            }, 500);
-          }
-
-          return anyUpdated ? updated : prev;
-        });
-      }, 2000);
-    }
-
     return () => {
       unsubscribe();
-      if (botInterval) clearInterval(botInterval);
     };
   }, [room.id, room.players]);
 
@@ -513,7 +452,7 @@ export function BattleQuizSession({
                       {r.player.avatarUrl ? (
                         <img src={r.player.avatarUrl} alt={r.player.name} className="w-full h-full object-cover" />
                       ) : (
-                        <span>{r.player.isBot ? '🤖' : '🐟'}</span>
+                        <span>🐟</span>
                       )}
                     </div>
 

@@ -9,7 +9,6 @@ import {
   Crown, 
   UserMinus, 
   Play, 
-  Bot, 
   ArrowLeft,
   Sparkles,
   Lock,
@@ -251,30 +250,6 @@ export function BattleLobbyModal({
     setView('waiting_room');
   };
 
-  // Leader: Add Bot Opponent for instant solo testing
-  const handleAddBot = () => {
-    if (!activeRoom || !isLeader) return;
-    if (activeRoom.players.length >= activeRoom.maxPlayers) {
-      alert('これ以上プレイヤーを追加できません（満員）');
-      return;
-    }
-    audio.playTap();
-
-    const botPlayer: RoomPlayer = {
-      id: `bot_${Date.now()}_${activeRoom.players.length}`,
-      name: `AIプレイヤー🤖`,
-      avatarUrl: null,
-      isLeader: false,
-      isReady: true,
-      isBot: true,
-      progress: 0,
-      score: 0,
-      mistakes: 0,
-    };
-
-    realtimeMultiplayer.joinRoom(activeRoom.id, botPlayer);
-  };
-
   // Leader: Kick Player
   const handleKickPlayer = (playerId: string) => {
     if (!activeRoom || !isLeader) return;
@@ -343,13 +318,7 @@ export function BattleLobbyModal({
   const handleLeaderStart = () => {
     if (!activeRoom || !isLeader) return;
     if (activeRoom.players.length < 2) {
-      const addBot = confirm('対戦相手がまだいません。「botを追加」して対戦を開始しますか？（他のブラウザやスマホから入ると人間同士でリアルタイム対戦できます）');
-      if (addBot) {
-        handleAddBot();
-        setTimeout(() => {
-          realtimeMultiplayer.startCountdown(activeRoom.id);
-        }, 500);
-      }
+      alert('対戦相手がまだいません。他のプレイヤーが部屋に参加するまでお待ちください。（「招待URLをコピー」で他の端末や友達に共有できます）');
       return;
     }
 
@@ -778,16 +747,10 @@ export function BattleLobbyModal({
                 <span className="text-xs font-black text-[#3C3C3C]">
                   オンライン参加メンバー ({activeRoom.players.length}人)
                 </span>
-                {isLeader && activeRoom.players.length < activeRoom.maxPlayers && (
-                  <button
-                    type="button"
-                    onClick={handleAddBot}
-                    className="text-xs font-black text-[#1CB0F6] hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Bot className="w-3.5 h-3.5" />
-                    <span>botを追加</span>
-                  </button>
-                )}
+                <span className="text-[11px] font-bold text-[#58CC02] flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#58CC02] animate-ping" />
+                  リアルタイム同期中
+                </span>
               </div>
 
               <div className="space-y-2 max-h-[35vh] overflow-y-auto pr-1">
@@ -806,7 +769,7 @@ export function BattleLobbyModal({
                           {p.avatarUrl ? (
                             <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" />
                           ) : (
-                            <span className="text-base">{p.isBot ? '🤖' : '🐟'}</span>
+                            <span className="text-base">🐟</span>
                           )}
                         </div>
 
