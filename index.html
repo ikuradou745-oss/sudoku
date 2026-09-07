@@ -11,10 +11,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index.css">
+    <script type="module" crossorigin src="/assets/index-QvXhbc2-.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Of7NDDty.css">
   </head>
   <body class="bg-[#FFFFFF] text-[#4B4B4B] antialiased min-h-screen selection:bg-[#58CC02] selection:text-white">
-    <div id="root"></div>
+    <div id="root">
+      <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Nunito', sans-serif; text-align: center; padding: 20px;">
+        <div style="font-size: 48px; margin-bottom: 12px; animation: bounce 1s infinite alternate;">🦉</div>
+        <div style="font-size: 18px; font-weight: 900; color: #58CC02; margin-bottom: 6px;">うおリンゴ (Uolingo)</div>
+        <div style="font-size: 13px; font-weight: 700; color: #AFAFAF;">読み込み中...</div>
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', function(e) {
+        var root = document.getElementById('root');
+        if (root && root.innerHTML.indexOf('読み込み中') !== -1) {
+          root.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;font-family:sans-serif;text-align:center;">' +
+            '<div style="max-width:400px;padding:24px;border:2px solid #FFD0D0;background:#FFF5F5;border-radius:24px;">' +
+            '<div style="font-size:36px;margin-bottom:8px;">⚠️</div>' +
+            '<div style="font-weight:900;color:#FF4B4B;margin-bottom:8px;">読み込みに失敗しました</div>' +
+            '<div style="font-size:12px;color:#777;margin-bottom:16px;">ブラウザのキャッシュをクリアして再読み込みしてください。</div>' +
+            '<button onclick="localStorage.clear();sessionStorage.clear();location.reload();" style="padding:10px 20px;background:#58CC02;color:#fff;border:none;border-radius:12px;font-weight:bold;cursor:pointer;">キャッシュクリアして再起動</button>' +
+            '</div></div>';
+        }
+      });
+    </script>
   </body>
 </html>
