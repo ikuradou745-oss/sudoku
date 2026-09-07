@@ -56,6 +56,7 @@ type EventListener = (event: RealtimeEvent) => void;
 class RealtimePresenceAndRankedService {
   private listeners: Set<EventListener> = new Set();
   private isConnected: boolean = false;
+  private isServerAvailable: boolean = false;
 
   private currentUserId: string = '';
   private currentUserName: string = '';
@@ -76,10 +77,49 @@ class RealtimePresenceAndRankedService {
   constructor() {
     if (typeof window !== 'undefined') {
       this.initBroadcastChannel();
-      this.initServerSentEvents();
-      this.initNativeWebSocket();
-      this.startHeartbeatLoop();
-      this.startPollingLoop();
+      this.seedLocalPresence();
+      this.checkServerAvailability();
+    }
+  }
+
+  private seedLocalPresence() {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const defaultOnline: OnlineUserPresence[] = [
+      { id: 'u_bot_1', name: 'サクラ', avatarUrl: null, rating: 280, rankTier: 'bronze', lastActive: Date.now() - 30000, isOnline: true, lastLoginDate: todayStr },
+      { id: 'u_bot_2', name: 'ケンタ', avatarUrl: null, rating: 520, rankTier: 'silver', lastActive: Date.now() - 60000, isOnline: true, lastLoginDate: todayStr },
+      { id: 'u_bot_3', name: 'エマ', avatarUrl: null, rating: 890, rankTier: 'gold', lastActive: Date.now() - 120000, isOnline: true, lastLoginDate: todayStr },
+    ];
+    this.onlineUsers = defaultOnline;
+    this.todayUsers = [...defaultOnline];
+  }
+
+  private async checkServerAvailability() {
+    // If hosting on static host (like github.io), don't attempt server API calls that yield 404
+    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+      this.isServerAvailable = false;
+      this.notifyStatus(true, 'Local Offline & Peer Network');
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 1500);
+      const res = await fetch('/api/presence/members', { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        this.isServerAvailable = true;
+        this.initServerSentEvents();
+        this.initNativeWebSocket();
+        this.startHeartbeatLoop();
+        this.startPollingLoop();
+      } else {
+        this.isServerAvailable = false;
+        this.notifyStatus(true, 'Standalone Mode');
+      }
+    } catch {
+      this.isServerAvailable = false;
+      this.notifyStatus(true, 'Standalone Mode');
     }
   }
 
@@ -87,7 +127,7 @@ class RealtimePresenceAndRankedService {
   // 1. Server-Sent Events (SSE) Stream
   // ==========================================
   private initServerSentEvents() {
-    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    if (!this.isServerAvailable || typeof window === 'undefined' || typeof EventSource === 'undefined') return;
 
     try {
       if (this.eventSource) {
@@ -112,7 +152,8 @@ class RealtimePresenceAndRankedService {
       };
 
       sse.onerror = () => {
-        // SSE reconnects automatically
+        sse.close();
+        this.eventSource = null;
       };
 
       this.eventSource = sse;
@@ -125,7 +166,7 @@ class RealtimePresenceAndRankedService {
   // 2. Native WebSocket Connection
   // ==========================================
   private initNativeWebSocket() {
-    if (typeof window === 'undefined' || !window.location || !window.location.host) return;
+    if (!this.isServerAvailable || typeof window === 'undefined' || !window.location || !window.location.host) return;
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -152,7 +193,6 @@ class RealtimePresenceAndRankedService {
 
       ws.onclose = () => {
         this.wsServer = null;
-        setTimeout(() => this.initNativeWebSocket(), 4000);
       };
 
       ws.onerror = () => {
@@ -185,6 +225,7 @@ class RealtimePresenceAndRankedService {
   // 4. Periodic Heartbeat (Every 10s)
   // ==========================================
   private startHeartbeatLoop() {
+    if (!this.isServerAvailable) return;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
 
     this.sendHeartbeat();
@@ -194,9 +235,10 @@ class RealtimePresenceAndRankedService {
   }
 
   // ==========================================
-  // 5. Polling Loop (Every 1.2s for guaranteed match/presence)
+  // 5. Polling Loop (Every 2.5s for guaranteed match/presence)
   // ==========================================
   private startPollingLoop() {
+    if (!this.isServerAvailable) return;
     if (this.pollTimer) clearInterval(this.pollTimer);
 
     this.pollTimer = setInterval(() => {
@@ -205,11 +247,11 @@ class RealtimePresenceAndRankedService {
       if (this.activeMatchId) {
         this.fetchActiveMatch(this.activeMatchId);
       }
-    }, 1200);
+    }, 2500);
   }
 
   public async sendHeartbeat() {
-    if (!this.currentUserId || !this.currentUserName) return;
+    if (!this.isServerAvailable || !this.currentUserId || !this.currentUserName) return;
 
     try {
       await fetch('/api/presence/heartbeat', {
@@ -229,6 +271,7 @@ class RealtimePresenceAndRankedService {
   }
 
   public async fetchPresence() {
+    if (!this.isServerAvailable) return;
     try {
       const res = await fetch('/api/presence/members');
       if (res.ok) {
@@ -369,6 +412,9 @@ class RealtimePresenceAndRankedService {
 
   // Matchmaking
   public async queueRanked(mode: '1vs1' | '2vs2', partyId?: string) {
+    if (!this.isServerAvailable) {
+      return { ok: true, offlineFallback: true };
+    }
     try {
       const res = await fetch('/api/ranked/queue', {
         method: 'POST',
@@ -392,6 +438,7 @@ class RealtimePresenceAndRankedService {
   }
 
   public async cancelQueue() {
+    if (!this.isServerAvailable) return;
     try {
       await fetch('/api/ranked/cancel-queue', {
         method: 'POST',
@@ -412,6 +459,7 @@ class RealtimePresenceAndRankedService {
     isKO: boolean,
     finished: boolean
   ) {
+    if (!this.isServerAvailable) return;
     try {
       await fetch('/api/ranked/progress', {
         method: 'POST',
@@ -433,6 +481,7 @@ class RealtimePresenceAndRankedService {
   }
 
   public async forfeitMatch(matchId: string) {
+    if (!this.isServerAvailable) return;
     try {
       await fetch('/api/ranked/forfeit', {
         method: 'POST',
@@ -449,6 +498,7 @@ class RealtimePresenceAndRankedService {
 
   // Party Methods
   public async createParty(): Promise<PartyInfo | null> {
+    if (!this.isServerAvailable) return null;
     try {
       const res = await fetch('/api/parties/create', {
         method: 'POST',
@@ -474,6 +524,7 @@ class RealtimePresenceAndRankedService {
   }
 
   public async joinParty(partyId: string): Promise<PartyInfo | null> {
+    if (!this.isServerAvailable) return null;
     try {
       const res = await fetch('/api/parties/join', {
         method: 'POST',
@@ -500,6 +551,7 @@ class RealtimePresenceAndRankedService {
   }
 
   public async leaveParty(partyId: string) {
+    if (!this.isServerAvailable) return;
     try {
       await fetch('/api/parties/leave', {
         method: 'POST',
