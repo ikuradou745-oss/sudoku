@@ -45,7 +45,7 @@ export function ProfileModal({
   onSave,
   onClose,
 }: ProfileModalProps) {
-  const [name, setName] = useState<string>(currentName || 'うおリンゴ会員');
+  const [name, setName] = useState<string>(currentName || 'うおwりんご会員');
   const [gridSize, setGridSize] = useState<GridSize>(32);
   const [selectedTool, setSelectedTool] = useState<DrawingTool>('pen');
   const [currentColor, setCurrentColor] = useState<string>('#58CC02');

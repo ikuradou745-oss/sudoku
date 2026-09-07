@@ -164,8 +164,9 @@ export function HomeScreen({
           <Sparkles className="w-3.5 h-3.5" />
           <span>英語学習 (英検4〜5級・並べ替え)</span>
         </div>
-        <h1 className="text-4xl sm:text-5xl font-black text-[#3C3C3C] tracking-tight">
-          うおリンゴ
+        <h1 className="text-4xl sm:text-5xl font-black text-[#3C3C3C] tracking-tight flex items-center justify-center gap-2">
+          <span>🐟🍎</span>
+          <span>うおwりんご</span>
         </h1>
         <p className="text-sm font-bold text-[#777777] mt-1">
           {stats.userName ? `ようこそ、${stats.userName}さん！` : '問題を解いて⚡️コインをあつめよう！'}

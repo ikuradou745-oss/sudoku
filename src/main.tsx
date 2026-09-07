@@ -40,7 +40,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       return (
         <div className="min-h-screen bg-[#FFFFFF] flex items-center justify-center p-6 text-[#4B4B4B]">
           <div className="max-w-md w-full p-6 rounded-3xl border-2 border-[#FFD0D0] bg-[#FFF5F5] text-center shadow-lg space-y-4">
-            <div className="text-4xl">🦉💥</div>
+            <div className="text-4xl">🐟🍎</div>
             <h2 className="text-xl font-black text-[#FF4B4B]">画面の読み込みでエラーが発生しました</h2>
             <p className="text-xs font-bold text-[#777777]">
               一時的なデータ不整合の可能性があります。下のボタンを押して再読み込みしてください。
