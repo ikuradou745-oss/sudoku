@@ -1,15 +1,30 @@
-import { BattleRoom, RoomPlayer, Modifier } from '../types';
+import { 
+  OnlineUserPresence, 
+  RankedMatchSession, 
+  RankTier 
+} from '../types';
 
-export type MultiplayerEvent =
-  | { type: 'ROOMS_LIST'; rooms: BattleRoom[] }
-  | { type: 'ROOM_CREATED'; room: BattleRoom }
-  | { type: 'ROOM_UPDATED'; room: BattleRoom }
-  | { type: 'ROOM_DELETED'; roomId: string }
-  | { type: 'KICKED_FROM_ROOM'; roomId: string; targetPlayerId?: string }
-  | { type: 'COUNTDOWN_STARTED'; room: BattleRoom }
+export interface PartyInfo {
+  partyId: string;
+  leaderId: string;
+  players: {
+    id: string;
+    name: string;
+    avatarUrl?: string | null;
+    rating: number;
+    rankTier: RankTier;
+  }[];
+  createdAt: number;
+}
+
+export type RealtimeEvent =
+  | { type: 'PRESENCE_SNAPSHOT'; onlineUsers: OnlineUserPresence[]; todayUsers: OnlineUserPresence[] }
+  | { type: 'QUEUE_STATUS'; queue1v1Count: number; queue2v2Count: number }
+  | { type: 'RANKED_MATCH_FOUND'; matchId: string; session: RankedMatchSession }
   | {
-      type: 'LIVE_PROGRESS_UPDATE';
-      roomId: string;
+      type: 'RANKED_PROGRESS_UPDATE';
+      matchId: string;
+      match: RankedMatchSession;
       playerId: string;
       progress: number;
       score: number;
@@ -17,33 +32,44 @@ export type MultiplayerEvent =
       lives?: number;
       isKO?: boolean;
       finished: boolean;
-      players?: RoomPlayer[];
     }
   | {
-      type: 'MATCH_CLEARED_BY_WINNER';
-      roomId: string;
-      winnerId: string;
-      winnerName: string;
-      winnerScore: number;
+      type: 'RANKED_MATCH_FINISHED';
+      matchId: string;
+      match: RankedMatchSession;
+      winnerSide?: string;
+      winnerIds?: string[];
     }
+  | {
+      type: 'RANKED_FORFEIT_OCCURRED';
+      matchId: string;
+      forfeitedPlayerId: string;
+      match: RankedMatchSession;
+      winnerIds?: string[];
+    }
+  | { type: 'PARTY_UPDATED'; party: PartyInfo | null }
   | { type: 'CONNECTION_STATUS'; connected: boolean; broker: string }
   | { type: 'ERROR'; message: string };
 
-type EventListener = (event: MultiplayerEvent) => void;
+type EventListener = (event: RealtimeEvent) => void;
 
-class RealtimeMultiplayerService {
+class RealtimePresenceAndRankedService {
   private listeners: Set<EventListener> = new Set();
   private isConnected: boolean = false;
 
   private currentUserId: string = '';
   private currentUserName: string = '';
-  private activeRoomId: string | null = null;
+  private currentAvatarUrl: string | null = null;
+  private currentRating: number = 0;
+  private currentRankTier: RankTier = 'bronze';
 
-  // Active rooms known to this client
-  private knownRooms: Map<string, BattleRoom> = new Map();
+  private onlineUsers: OnlineUserPresence[] = [];
+  private todayUsers: OnlineUserPresence[] = [];
+  private activeMatchId: string | null = null;
 
   private eventSource: EventSource | null = null;
   private wsServer: WebSocket | null = null;
+  private heartbeatTimer: any = null;
   private pollTimer: any = null;
   private broadcastChannel: BroadcastChannel | null = null;
 
@@ -52,6 +78,7 @@ class RealtimeMultiplayerService {
       this.initBroadcastChannel();
       this.initServerSentEvents();
       this.initNativeWebSocket();
+      this.startHeartbeatLoop();
       this.startPollingLoop();
     }
   }
@@ -95,7 +122,7 @@ class RealtimeMultiplayerService {
   }
 
   // ==========================================
-  // 2. Native WebSocket Fallback / Duplex
+  // 2. Native WebSocket Connection
   // ==========================================
   private initNativeWebSocket() {
     if (typeof window === 'undefined' || !window.location || !window.location.host) return;
@@ -112,7 +139,6 @@ class RealtimeMultiplayerService {
         if (this.currentUserId) {
           ws.send(JSON.stringify({ type: 'IDENTIFY', playerId: this.currentUserId, name: this.currentUserName }));
         }
-        ws.send(JSON.stringify({ type: 'GET_ROOMS' }));
       };
 
       ws.onmessage = (event) => {
@@ -126,7 +152,6 @@ class RealtimeMultiplayerService {
 
       ws.onclose = () => {
         this.wsServer = null;
-        // Retry WebSocket connection after 4 seconds
         setTimeout(() => this.initNativeWebSocket(), 4000);
       };
 
@@ -144,7 +169,7 @@ class RealtimeMultiplayerService {
   private initBroadcastChannel() {
     try {
       if (typeof BroadcastChannel !== 'undefined') {
-        this.broadcastChannel = new BroadcastChannel('uolingo_battle_sync_v4');
+        this.broadcastChannel = new BroadcastChannel('uolingo_ranked_sync_v1');
         this.broadcastChannel.onmessage = (e) => {
           if (e.data) {
             this.handleIncomingServerEvent(e.data, false);
@@ -157,37 +182,89 @@ class RealtimeMultiplayerService {
   }
 
   // ==========================================
-  // 4. Guaranteed HTTP Polling Loop (every 600ms)
+  // 4. Periodic Heartbeat (Every 10s)
+  // ==========================================
+  private startHeartbeatLoop() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+
+    this.sendHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.sendHeartbeat();
+    }, 10000);
+  }
+
+  // ==========================================
+  // 5. Polling Loop (Every 1.2s for guaranteed match/presence)
   // ==========================================
   private startPollingLoop() {
     if (this.pollTimer) clearInterval(this.pollTimer);
 
     this.pollTimer = setInterval(() => {
-      this.fetchRooms();
+      this.fetchPresence();
 
-      // If in an active room, also directly poll the specific room's authoritative status
-      if (this.activeRoomId) {
-        this.fetchActiveRoomDetails(this.activeRoomId);
+      if (this.activeMatchId) {
+        this.fetchActiveMatch(this.activeMatchId);
       }
-    }, 600);
+    }, 1200);
   }
 
-  private async fetchActiveRoomDetails(roomId: string) {
+  public async sendHeartbeat() {
+    if (!this.currentUserId || !this.currentUserName) return;
+
     try {
-      const res = await fetch(`/api/rooms/${roomId}`);
+      await fetch('/api/presence/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: this.currentUserId,
+          name: this.currentUserName,
+          avatarUrl: this.currentAvatarUrl,
+          rating: this.currentRating,
+          rankTier: this.currentRankTier,
+        }),
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  public async fetchPresence() {
+    try {
+      const res = await fetch('/api/presence/members');
       if (res.ok) {
-        const room: BattleRoom = await res.json();
-        this.mergeRoom(room);
-        this.handleIncomingServerEvent({ type: 'ROOM_UPDATED', room }, false);
+        const data = await res.json();
+        this.onlineUsers = data.onlineUsers || [];
+        this.todayUsers = data.todayUsers || [];
+        this.emitEvent({
+          type: 'PRESENCE_SNAPSHOT',
+          onlineUsers: this.onlineUsers,
+          todayUsers: this.todayUsers,
+        });
       }
     } catch {
       // Ignore
     }
   }
 
-  private mergeRoom(room: BattleRoom) {
-    if (!room || !room.id) return;
-    this.knownRooms.set(room.id, room);
+  private async fetchActiveMatch(matchId: string) {
+    try {
+      const res = await fetch(`/api/ranked/matches/${matchId}`);
+      if (res.ok) {
+        const match: RankedMatchSession = await res.json();
+        this.handleIncomingServerEvent({
+          type: 'RANKED_PROGRESS_UPDATE',
+          matchId: match.matchId,
+          match,
+          playerId: '',
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          finished: match.status === 'finished',
+        }, false);
+      }
+    } catch {
+      // Ignore
+    }
   }
 
   private handleIncomingServerEvent(data: any, broadcastToTabs = true) {
@@ -202,52 +279,19 @@ class RealtimeMultiplayerService {
     }
 
     switch (data.type) {
-      case 'ROOMS_LIST': {
-        if (Array.isArray(data.rooms)) {
-          this.knownRooms.clear();
-          data.rooms.forEach((r: BattleRoom) => this.knownRooms.set(r.id, r));
-          this.emitEvent({ type: 'ROOMS_LIST', rooms: data.rooms });
-        }
+      case 'PRESENCE_SNAPSHOT': {
+        this.onlineUsers = data.onlineUsers || [];
+        this.todayUsers = data.todayUsers || [];
+        this.emitEvent(data);
         break;
       }
 
-      case 'ROOM_CREATED': {
-        if (data.room) {
-          this.mergeRoom(data.room);
-          this.emitEvent({ type: 'ROOM_CREATED', room: data.room });
-          this.emitRoomsList();
-        }
-        break;
-      }
-
-      case 'ROOM_UPDATED': {
-        if (data.room) {
-          this.mergeRoom(data.room);
-          this.emitEvent({ type: 'ROOM_UPDATED', room: data.room });
-          this.emitRoomsList();
-        }
-        break;
-      }
-
-      case 'KICKED_FROM_ROOM': {
-        if (data.targetPlayerId && this.currentUserId && data.targetPlayerId !== this.currentUserId) {
-          // Another player was kicked
-          break;
-        }
-        this.emitEvent({ type: 'KICKED_FROM_ROOM', roomId: data.roomId, targetPlayerId: data.targetPlayerId });
-        break;
-      }
-
-      case 'COUNTDOWN_STARTED': {
-        if (data.room) {
-          this.mergeRoom(data.room);
-          this.emitEvent({ type: 'COUNTDOWN_STARTED', room: data.room });
-        }
-        break;
-      }
-
-      case 'LIVE_PROGRESS_UPDATE':
-      case 'MATCH_CLEARED_BY_WINNER':
+      case 'QUEUE_STATUS':
+      case 'RANKED_MATCH_FOUND':
+      case 'RANKED_PROGRESS_UPDATE':
+      case 'RANKED_MATCH_FINISHED':
+      case 'RANKED_FORFEIT_OCCURRED':
+      case 'PARTY_UPDATED':
       case 'ERROR': {
         this.emitEvent(data);
         break;
@@ -255,21 +299,14 @@ class RealtimeMultiplayerService {
     }
   }
 
-  private emitEvent(event: MultiplayerEvent) {
+  private emitEvent(event: RealtimeEvent) {
     this.listeners.forEach((listener) => {
       try {
         listener(event);
       } catch (err) {
-        console.error('Error in multiplayer event listener:', err);
+        console.error('Error in realtime event listener:', err);
       }
     });
-  }
-
-  private emitRoomsList() {
-    const list = Array.from(this.knownRooms.values()).filter(
-      (r) => r.status === 'waiting' || (r.players.length > 0 && r.status !== 'finished')
-    );
-    this.emitEvent({ type: 'ROOMS_LIST', rooms: list });
   }
 
   private notifyStatus(connected: boolean, broker: string) {
@@ -277,12 +314,16 @@ class RealtimeMultiplayerService {
   }
 
   // ==========================================
-  // Public API Methods
+  // Public Client API
   // ==========================================
   public subscribe(callback: EventListener): () => void {
     this.listeners.add(callback);
-    // Send immediate snapshot
-    this.emitRoomsList();
+    // Send immediate presence snapshot
+    callback({
+      type: 'PRESENCE_SNAPSHOT',
+      onlineUsers: this.onlineUsers,
+      todayUsers: this.todayUsers,
+    });
     this.notifyStatus(this.isConnected, 'Online Server');
 
     return () => {
@@ -290,9 +331,21 @@ class RealtimeMultiplayerService {
     };
   }
 
-  public identify(playerId: string, name: string) {
+  public identify(
+    playerId: string,
+    name: string,
+    avatarUrl: string | null = null,
+    rating: number = 0,
+    rankTier: RankTier = 'bronze'
+  ) {
     this.currentUserId = playerId;
     this.currentUserName = name;
+    this.currentAvatarUrl = avatarUrl;
+    this.currentRating = rating;
+    this.currentRankTier = rankTier;
+
+    this.sendHeartbeat();
+
     if (this.wsServer && this.wsServer.readyState === WebSocket.OPEN) {
       try {
         this.wsServer.send(JSON.stringify({ type: 'IDENTIFY', playerId, name }));
@@ -302,154 +355,76 @@ class RealtimeMultiplayerService {
     }
   }
 
-  public async fetchRooms() {
-    try {
-      const res = await fetch('/api/rooms');
-      if (res.ok) {
-        const rooms: BattleRoom[] = await res.json();
-        this.knownRooms.clear();
-        rooms.forEach((r) => this.knownRooms.set(r.id, r));
-        this.emitRoomsList();
-      }
-    } catch {
-      // Ignore
-    }
+  public getOnlineUsers(): OnlineUserPresence[] {
+    return this.onlineUsers;
   }
 
-  public createRoom(
-    name: string,
-    maxPlayers: number,
-    modifiers: Modifier[],
-    leaderPlayer: RoomPlayer
-  ): BattleRoom {
-    const localId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const tempRoom: BattleRoom = {
-      id: localId,
-      name: (name || `${leaderPlayer.name}の部屋`).trim(),
-      leaderId: leaderPlayer.id,
-      maxPlayers: Math.max(2, Math.min(8, maxPlayers || 4)),
-      modifiers: (modifiers || []).filter((m) => m.active),
-      players: [{ ...leaderPlayer, isLeader: true, isReady: true, progress: 0, score: 0, mistakes: 0, lives: 3, isKO: false }],
-      status: 'waiting',
-      createdAt: Date.now(),
-      seed: Math.floor(Math.random() * 100000),
-    };
-
-    this.activeRoomId = localId;
-    this.mergeRoom(tempRoom);
-    this.handleIncomingServerEvent({ type: 'ROOM_CREATED', room: tempRoom });
-
-    // Send HTTP POST to server
-    fetch('/api/rooms/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        maxPlayers,
-        modifiers,
-        leaderPlayer,
-      }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.room) {
-          this.activeRoomId = data.room.id;
-          this.mergeRoom(data.room);
-          this.handleIncomingServerEvent({ type: 'ROOM_CREATED', room: data.room });
-        }
-      })
-      .catch((err) => {
-        console.error('Error creating room on server:', err);
-      });
-
-    return tempRoom;
+  public getTodayUsers(): OnlineUserPresence[] {
+    return this.todayUsers;
   }
 
-  public async joinRoom(roomId: string, player: RoomPlayer) {
-    this.activeRoomId = roomId;
-
-    try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.room) {
-          this.mergeRoom(data.room);
-          this.handleIncomingServerEvent({ type: 'ROOM_UPDATED', room: data.room });
-        }
-      } else {
-        const errData = await res.json().catch(() => ({ error: '参加に失敗しました' }));
-        this.emitEvent({ type: 'ERROR', message: errData.error || '部屋に参加できませんでした' });
-      }
-    } catch (err) {
-      console.error('Error joining room:', err);
-    }
+  public setActiveMatchId(matchId: string | null) {
+    this.activeMatchId = matchId;
   }
 
-  public async leaveRoom(roomId: string, playerId: string) {
-    if (this.activeRoomId === roomId) {
-      this.activeRoomId = null;
-    }
-
+  // Matchmaking
+  public async queueRanked(mode: '1vs1' | '2vs2', partyId?: string) {
     try {
-      await fetch(`/api/rooms/${encodeURIComponent(roomId)}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId }),
-      });
-    } catch {
-      // Ignore
-    }
-  }
-
-  public async kickPlayer(roomId: string, targetPlayerId: string) {
-    try {
-      await fetch(`/api/rooms/${encodeURIComponent(roomId)}/kick`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetPlayerId }),
-      });
-    } catch {
-      // Ignore
-    }
-  }
-
-  public async startCountdown(roomId: string) {
-    try {
-      await fetch(`/api/rooms/${encodeURIComponent(roomId)}/countdown`, {
-        method: 'POST',
-      });
-    } catch {
-      // Ignore
-    }
-  }
-
-  public async sendProgress(
-    roomId: string,
-    playerId: string,
-    progress: number,
-    score: number,
-    mistakes: number,
-    finished: boolean,
-    lives?: number,
-    isKO?: boolean
-  ) {
-    try {
-      await fetch(`/api/rooms/${encodeURIComponent(roomId)}/progress`, {
+      const res = await fetch('/api/ranked/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          playerId,
+          player: {
+            id: this.currentUserId,
+            name: this.currentUserName,
+            avatarUrl: this.currentAvatarUrl,
+            rating: this.currentRating,
+            rankTier: this.currentRankTier,
+          },
+          mode,
+          partyId,
+        }),
+      });
+      return await res.json();
+    } catch (err) {
+      console.error('Error queuing for ranked:', err);
+    }
+  }
+
+  public async cancelQueue() {
+    try {
+      await fetch('/api/ranked/cancel-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.currentUserId }),
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  public async sendMatchProgress(
+    matchId: string,
+    progress: number,
+    score: number,
+    mistakes: number,
+    lives: number,
+    isKO: boolean,
+    finished: boolean
+  ) {
+    try {
+      await fetch('/api/ranked/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          matchId,
+          playerId: this.currentUserId,
           progress,
           score,
           mistakes,
-          finished,
           lives,
           isKO,
+          finished,
         }),
       });
     } catch {
@@ -457,20 +432,81 @@ class RealtimeMultiplayerService {
     }
   }
 
-  public async declareWinnerClear(
-    roomId: string,
-    winnerId: string,
-    winnerName: string,
-    winnerScore: number
-  ) {
+  public async forfeitMatch(matchId: string) {
     try {
-      await fetch(`/api/rooms/${encodeURIComponent(roomId)}/declare-winner`, {
+      await fetch('/api/ranked/forfeit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          winnerId,
-          winnerName,
-          winnerScore,
+          matchId,
+          playerId: this.currentUserId,
+        }),
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Party Methods
+  public async createParty(): Promise<PartyInfo | null> {
+    try {
+      const res = await fetch('/api/parties/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leader: {
+            id: this.currentUserId,
+            name: this.currentUserName,
+            avatarUrl: this.currentAvatarUrl,
+            rating: this.currentRating,
+            rankTier: this.currentRankTier,
+          },
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.party;
+      }
+    } catch (err) {
+      console.error('Error creating party:', err);
+    }
+    return null;
+  }
+
+  public async joinParty(partyId: string): Promise<PartyInfo | null> {
+    try {
+      const res = await fetch('/api/parties/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partyId,
+          player: {
+            id: this.currentUserId,
+            name: this.currentUserName,
+            avatarUrl: this.currentAvatarUrl,
+            rating: this.currentRating,
+            rankTier: this.currentRankTier,
+          },
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.party;
+      }
+    } catch (err) {
+      console.error('Error joining party:', err);
+    }
+    return null;
+  }
+
+  public async leaveParty(partyId: string) {
+    try {
+      await fetch('/api/parties/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partyId,
+          playerId: this.currentUserId,
         }),
       });
     } catch {
@@ -479,4 +515,4 @@ class RealtimeMultiplayerService {
   }
 }
 
-export const realtimeMultiplayer = new RealtimeMultiplayerService();
+export const realtimePresence = new RealtimePresenceAndRankedService();

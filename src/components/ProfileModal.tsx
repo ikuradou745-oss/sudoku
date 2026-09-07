@@ -14,12 +14,16 @@ import {
 } from 'lucide-react';
 import { audio } from '../utils/audio';
 
+import { UserStats } from '../types';
+import { getRankInfo } from '../utils/rank';
+
 type GridSize = 16 | 32 | 64 | 'smooth';
 type DrawingTool = 'pen' | 'line' | 'fill' | 'eraser';
 
 interface ProfileModalProps {
   currentName: string;
   currentAvatar: string | null;
+  stats?: UserStats;
   onSave: (name: string, avatarDataUrl: string) => void;
   onClose: () => void;
 }
@@ -35,6 +39,7 @@ const PRESET_COLORS = [
 export function ProfileModal({
   currentName,
   currentAvatar,
+  stats,
   onSave,
   onClose,
 }: ProfileModalProps) {
@@ -42,6 +47,8 @@ export function ProfileModal({
   const [gridSize, setGridSize] = useState<GridSize>(32);
   const [selectedTool, setSelectedTool] = useState<DrawingTool>('pen');
   const [currentColor, setCurrentColor] = useState<string>('#58CC02');
+
+  const rankInfo = getRankInfo(stats?.rating || 0);
   const [brushSize, setBrushSize] = useState<number>(3);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
 
@@ -435,6 +442,31 @@ export function ProfileModal({
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* User Rank & Rating Badge */}
+        <div className="mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-[#FFFBEB] via-[#FEF3C7] to-[#FDE68A] border-2 border-[#FCD34D] flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">{rankInfo.icon}</span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-base font-black text-[#92400E]">
+                  {rankInfo.name}
+                </span>
+                <span className="text-[11px] font-mono font-black text-[#D97706] bg-white px-2 py-0.5 rounded-full border border-[#FCD34D]">
+                  {stats?.rating || 0} RP
+                </span>
+              </div>
+              <div className="text-[11px] font-bold text-[#B45309] mt-0.5">
+                ランク戦績: {stats?.rankedWins || 0}勝 {stats?.rankedLosses || 0}敗
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="text-[10px] font-black bg-white/80 text-[#92400E] px-2 py-1 rounded-lg border border-[#FCD34D]">
+              {rankInfo.tier === 'heaven' ? '最高ランク到達' : `次: ${rankInfo.maxRating} RP`}
+            </span>
+          </div>
         </div>
 
         {/* 1. User Name Change Section (Max 12 chars) */}

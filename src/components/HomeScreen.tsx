@@ -9,17 +9,19 @@ import {
   ArrowRight,
   Settings,
   User,
-  Swords
+  Trophy
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { isDailyCompletedToday, getNextResetTimeString } from '../utils/storage';
+import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
 
 interface HomeScreenProps {
   stats: UserStats;
   onStartPractice: () => void;
   onStartDaily: () => void;
-  onStartBattle: () => void;
+  onStartRanked: () => void;
+  onOpenCommunity: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
   soundEnabled: boolean;
@@ -29,7 +31,8 @@ export function HomeScreen({
   stats,
   onStartPractice,
   onStartDaily,
-  onStartBattle,
+  onStartRanked,
+  onOpenCommunity,
   onToggleSound,
   onOpenProfile,
   soundEnabled,
@@ -49,28 +52,30 @@ export function HomeScreen({
     return () => clearInterval(interval);
   }, [stats.lastDailyDate]);
 
+  const userRank = getRankInfo(stats.rating || 0);
+
   return (
     <div className="w-full max-w-md mx-auto px-4 py-8">
-      {/* Top Header: ⚡️ : (数) on Left, Profile & Settings on Right */}
-      <header className="flex items-center justify-between mb-8 pb-4 border-b-2 border-[#E5E5E5]">
+      {/* Top Header: ⚡️ Count on Left, Rank Badge, Community & Settings on Right */}
+      <header className="flex items-center justify-between mb-8 pb-4 border-b-2 border-[#E5E5E5] gap-2">
         {/* ⚡️ : Count */}
         <div 
           id="energy-display"
-          className="flex items-center gap-2 bg-[#FFF9E6] border-2 border-[#FFD966] px-4 py-2 rounded-2xl shadow-xs"
+          className="flex items-center gap-1.5 bg-[#FFF9E6] border-2 border-[#FFD966] px-3.5 py-1.5 rounded-2xl shadow-xs shrink-0"
         >
-          <span className="text-2xl animate-pulse">⚡️</span>
-          <div className="flex items-baseline gap-1.5">
+          <span className="text-xl animate-pulse">⚡️</span>
+          <div className="flex items-baseline gap-1">
             <span className="text-xs font-black text-[#A57800]">⚡️ :</span>
-            <span className="text-2xl font-black text-[#FF9600] font-mono-code">
+            <span className="text-xl font-black text-[#FF9600] font-mono-code">
               {stats.energy}
             </span>
           </div>
         </div>
 
-        {/* Right side: Streak & Sound & Profile Settings */}
-        <div className="flex items-center gap-2">
+        {/* Right side: Streak & Sound & Profile & Community 👥 */}
+        <div className="flex items-center gap-1.5">
           {stats.streak > 0 && (
-            <div className="flex items-center gap-1 bg-[#F7F7F7] border-2 border-[#E5E5E5] px-3 py-1.5 rounded-2xl text-xs font-black text-[#FF9600]">
+            <div className="flex items-center gap-1 bg-[#F7F7F7] border-2 border-[#E5E5E5] px-2.5 py-1.5 rounded-2xl text-xs font-black text-[#FF9600]">
               <span>🔥</span>
               <span>{stats.streak}日</span>
             </div>
@@ -92,15 +97,15 @@ export function HomeScreen({
             )}
           </button>
 
-          {/* Profile & Icon Settings Button */}
+          {/* Profile & Settings Button */}
           <button
             id="profile-settings-btn"
             onClick={() => {
               audio.playTap();
               onOpenProfile();
             }}
-            className="h-10 px-3 rounded-2xl bg-[#F7F7F7] hover:bg-[#EBF7FD] border-2 border-[#E5E5E5] hover:border-[#1CB0F6] flex items-center gap-2 transition-all cursor-pointer group"
-            title="プロフィール設定（名前・アイコン変更）"
+            className="h-10 px-2.5 rounded-2xl bg-[#F7F7F7] hover:bg-[#EBF7FD] border-2 border-[#E5E5E5] hover:border-[#1CB0F6] flex items-center gap-1.5 transition-all cursor-pointer group"
+            title="プロフィール設定（名前・アイコン・ランク確認）"
           >
             {/* Custom Avatar Thumbnail or Default Icon */}
             <div className="w-6 h-6 rounded-full overflow-hidden border border-[#D0D0D0] bg-white flex items-center justify-center shrink-0">
@@ -115,16 +120,26 @@ export function HomeScreen({
                 <User className="w-4 h-4 text-[#58CC02]" />
               )}
             </div>
-            <span className="text-xs font-black text-[#3C3C3C] max-w-[80px] truncate hidden sm:inline">
-              {stats.userName || '会員'}
-            </span>
             <Settings className="w-4 h-4 text-[#AFAFAF] group-hover:text-[#1CB0F6] group-hover:rotate-45 transition-all" />
+          </button>
+
+          {/* 👥 Community & Online Members Button */}
+          <button
+            id="community-members-btn"
+            onClick={() => {
+              audio.playTap();
+              onOpenCommunity();
+            }}
+            className="w-10 h-10 rounded-2xl bg-[#EBF7FD] hover:bg-[#DDF2FD] border-2 border-[#BDE3F8] hover:border-[#1CB0F6] flex items-center justify-center text-lg transition-all cursor-pointer shadow-xs active:scale-95"
+            title="👥 今日ログインした人・現在オンライン中のメンバー"
+          >
+            <span className="leading-none">👥</span>
           </button>
         </div>
       </header>
 
-      {/* App Branding & User Greeting */}
-      <div className="text-center mb-8">
+      {/* App Branding & User Rank Overview */}
+      <div className="text-center mb-6">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF7FD] border border-[#BDE3F8] text-[#1CB0F6] text-xs font-black mb-3">
           <Sparkles className="w-3.5 h-3.5" />
           <span>英語学習 (英検4〜5級・並べ替え)</span>
@@ -135,6 +150,17 @@ export function HomeScreen({
         <p className="text-sm font-bold text-[#777777] mt-1">
           {stats.userName ? `ようこそ、${stats.userName}さん！` : '問題を解いて⚡️コインをあつめよう！'}
         </p>
+
+        {/* User Rank Card Pill */}
+        <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border-2 bg-white shadow-xs">
+          <span className="text-base">{userRank.icon}</span>
+          <span className="text-xs font-black text-[#3C3C3C]">
+            ランク: {userRank.name}
+          </span>
+          <span className="text-[11px] font-mono font-black text-[#1CB0F6] bg-[#EBF7FD] px-2 py-0.5 rounded-md">
+            {stats.rating || 0} RP
+          </span>
+        </div>
       </div>
 
       {/* Main Action Buttons */}
@@ -217,35 +243,36 @@ export function HomeScreen({
           </div>
         </button>
 
-        {/* 3. 対戦 (オンライン) */}
+        {/* 3. ランクマッチ (Ranked Match 1vs1 & 2vs2) */}
         <button
-          id="start-battle-btn"
+          id="start-ranked-btn"
           onClick={() => {
             audio.playTap();
-            onStartBattle();
+            onStartRanked();
           }}
           className="duo-btn duo-btn-red w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
         >
           <div className="flex items-center gap-3.5 text-left">
             <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
-              <Swords className="w-5 h-5" />
+              <Trophy className="w-5 h-5 text-white" />
             </div>
             <div>
               <div className="text-lg font-black text-white flex items-center gap-2">
-                <span>対戦</span>
+                <span>ランクマッチ</span>
                 <span className="text-[10px] font-black bg-white/30 text-white px-1.5 py-0.2 rounded-md">
-                  オンライン
+                  1vs1・2vs2
                 </span>
               </div>
               <div className="text-xs font-bold text-white/90">
-                部屋を探す・作る・順位別報酬！
+                レート対戦・昇格戦・オンライン真剣勝負！
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
-              +6〜30⚡️
+            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full flex items-center gap-1">
+              <span>{userRank.icon}</span>
+              <span>{userRank.name}</span>
             </span>
             <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>

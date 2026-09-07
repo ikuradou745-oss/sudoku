@@ -5,69 +5,136 @@ import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 
-interface RoomPlayer {
+export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
+
+interface PresenceUser {
   id: string;
   name: string;
   avatarUrl?: string | null;
-  isLeader: boolean;
-  isReady: boolean;
-  isBot?: boolean;
-  progress?: number;
-  score?: number;
-  mistakes?: number;
-  lives?: number;
-  isKO?: boolean;
-  finished?: boolean;
+  rating: number;
+  rankTier: RankTier;
+  lastActive: number;
+  lastLoginDate: string; // YYYY-MM-DD
+}
+
+interface RankedQueuePlayer {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  rating: number;
+  rankTier: RankTier;
+  joinedAt: number;
+  partyId?: string | null;
+}
+
+interface RankedMatchPlayer {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  rating: number;
+  rankTier: RankTier;
+  team?: 'red' | 'blue';
+  progress: number;
+  score: number;
+  mistakes: number;
+  lives: number;
+  isKO: boolean;
+  finished: boolean;
   finishTime?: number;
+  isBot?: boolean;
 }
 
-interface Modifier {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  bonusPercent: number;
-  active: boolean;
-}
-
-interface BattleRoom {
-  id: string;
-  name: string;
-  leaderId: string;
-  maxPlayers: number;
-  players: RoomPlayer[];
-  modifiers: Modifier[];
-  status: 'waiting' | 'countdown' | 'in_game' | 'finished';
+interface RankedMatchSession {
+  matchId: string;
+  mode: '1vs1' | '2vs2' | 'placement';
+  players: RankedMatchPlayer[];
+  teams?: {
+    teamRed: RankedMatchPlayer[];
+    teamBlue: RankedMatchPlayer[];
+  };
+  status: 'countdown' | 'in_game' | 'finished';
+  winnerSide?: 'player1' | 'player2' | 'teamRed' | 'teamBlue' | 'draw';
+  winnerIds?: string[];
   createdAt: number;
   seed: number;
 }
 
-// In-Memory Server Room Storage (Authoritative)
-const rooms = new Map<string, BattleRoom>();
+interface PartyInfo {
+  partyId: string;
+  leaderId: string;
+  players: {
+    id: string;
+    name: string;
+    avatarUrl?: string | null;
+    rating: number;
+    rankTier: RankTier;
+  }[];
+  createdAt: number;
+}
+
+// 9:00 AM JST cycle key helper
+function getCurrentDailyCycleKey(now: Date = new Date()): string {
+  const cycleDate = new Date(now.getTime());
+  if (cycleDate.getHours() < 9) {
+    cycleDate.setDate(cycleDate.getDate() - 1);
+  }
+  const year = cycleDate.getFullYear();
+  const month = String(cycleDate.getMonth() + 1).padStart(2, '0');
+  const day = String(cycleDate.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Global In-Memory Stores
+const presenceMap = new Map<string, PresenceUser>();
+const rankedQueue1v1: RankedQueuePlayer[] = [];
+const rankedQueue2v2: RankedQueuePlayer[] = [];
+const activeParties = new Map<string, PartyInfo>();
+const activeRankedMatches = new Map<string, RankedMatchSession>();
 
 // Client Connection Context for WebSockets
-const clientMeta = new Map<WebSocket, { playerId: string; roomId: string | null; name: string }>();
+const clientMeta = new Map<WebSocket, { playerId: string; name: string }>();
 
 // SSE (Server-Sent Events) clients for real-time HTTP streaming
 const sseClients = new Set<express.Response>();
 
-function getRoomsList(): BattleRoom[] {
-  return Array.from(rooms.values()).filter(
-    (r) => r.status === 'waiting' || (r.players.length > 0 && r.status !== 'finished')
-  );
+function getPresenceSnapshot() {
+  const now = Date.now();
+  const currentDailyKey = getCurrentDailyCycleKey();
+  const allUsers = Array.from(presenceMap.values());
+
+  const onlineUsers = allUsers
+    .filter((u) => now - u.lastActive < 30000)
+    .map((u) => ({
+      ...u,
+      isOnline: true,
+    }))
+    .sort((a, b) => b.lastActive - a.lastActive);
+
+  const todayUsers = allUsers
+    .filter((u) => u.lastLoginDate === currentDailyKey)
+    .map((u) => ({
+      ...u,
+      isOnline: now - u.lastActive < 30000,
+    }))
+    .sort((a, b) => b.lastActive - a.lastActive);
+
+  return { onlineUsers, todayUsers };
 }
 
-// Clean up stale empty rooms periodically (every 1 minute)
+// Cleanup stale items periodically
 setInterval(() => {
   const now = Date.now();
-  rooms.forEach((room, roomId) => {
-    // If room is empty and older than 10 seconds, delete
-    if (room.players.length === 0 && now - room.createdAt > 10000) {
-      rooms.delete(roomId);
+  // Clear old matches finished > 10 min ago
+  activeRankedMatches.forEach((match, id) => {
+    if (match.status === 'finished' && now - match.createdAt > 600000) {
+      activeRankedMatches.delete(id);
     }
-    // If room is finished and older than 5 minutes, delete
-    if (room.status === 'finished' && now - room.createdAt > 1000 * 60 * 5) {
-      rooms.delete(roomId);
+  });
+
+  // Clear stale parties empty or > 2 hours
+  activeParties.forEach((party, id) => {
+    if (party.players.length === 0 || now - party.createdAt > 7200000) {
+      activeParties.delete(id);
     }
   });
 }, 30000);
@@ -123,6 +190,172 @@ async function startServer() {
   }
 
   // ==========================================
+  // Matchmaking Check Engine
+  // ==========================================
+  function tryMatchmaking1v1() {
+    while (rankedQueue1v1.length >= 2) {
+      const p1 = rankedQueue1v1.shift()!;
+      const p2 = rankedQueue1v1.shift()!;
+
+      const matchId = `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const session: RankedMatchSession = {
+        matchId,
+        mode: '1vs1',
+        status: 'countdown',
+        seed: Math.floor(Math.random() * 100000),
+        createdAt: Date.now(),
+        players: [
+          {
+            id: p1.id,
+            name: p1.name,
+            avatarUrl: p1.avatarUrl,
+            rating: p1.rating,
+            rankTier: p1.rankTier,
+            progress: 0,
+            score: 0,
+            mistakes: 0,
+            lives: 3,
+            isKO: false,
+            finished: false,
+          },
+          {
+            id: p2.id,
+            name: p2.name,
+            avatarUrl: p2.avatarUrl,
+            rating: p2.rating,
+            rankTier: p2.rankTier,
+            progress: 0,
+            score: 0,
+            mistakes: 0,
+            lives: 3,
+            isKO: false,
+            finished: false,
+          },
+        ],
+      };
+
+      activeRankedMatches.set(matchId, session);
+
+      // Broadcast match found to everyone and targets
+      broadcastEvent({
+        type: 'RANKED_MATCH_FOUND',
+        matchId,
+        session,
+      });
+    }
+  }
+
+  function tryMatchmaking2v2() {
+    // If we have at least 4 players in 2v2 queue
+    if (rankedQueue2v2.length >= 4) {
+      // Pick 4 players
+      const matchedPlayers: RankedQueuePlayer[] = [];
+      while (matchedPlayers.length < 4 && rankedQueue2v2.length > 0) {
+        matchedPlayers.push(rankedQueue2v2.shift()!);
+      }
+
+      if (matchedPlayers.length === 4) {
+        // Form teams:
+        // If 2 players have matching partyId, keep them together
+        const partyGroups = new Map<string, RankedQueuePlayer[]>();
+        const soloPlayers: RankedQueuePlayer[] = [];
+
+        matchedPlayers.forEach((p) => {
+          if (p.partyId) {
+            const list = partyGroups.get(p.partyId) || [];
+            list.push(p);
+            partyGroups.set(p.partyId, list);
+          } else {
+            soloPlayers.push(p);
+          }
+        });
+
+        let teamRedQueue: RankedQueuePlayer[] = [];
+        let teamBlueQueue: RankedQueuePlayer[] = [];
+
+        // Distribute parties
+        partyGroups.forEach((group) => {
+          if (teamRedQueue.length + group.length <= 2) {
+            teamRedQueue.push(...group);
+          } else if (teamBlueQueue.length + group.length <= 2) {
+            teamBlueQueue.push(...group);
+          } else {
+            soloPlayers.push(...group);
+          }
+        });
+
+        // Distribute solo players randomly
+        // Shuffle solo players
+        for (let i = soloPlayers.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [soloPlayers[i], soloPlayers[j]] = [soloPlayers[j], soloPlayers[i]];
+        }
+
+        while (soloPlayers.length > 0) {
+          const p = soloPlayers.pop()!;
+          if (teamRedQueue.length < 2) {
+            teamRedQueue.push(p);
+          } else {
+            teamBlueQueue.push(p);
+          }
+        }
+
+        const teamRedPlayers: RankedMatchPlayer[] = teamRedQueue.map((p) => ({
+          id: p.id,
+          name: p.name,
+          avatarUrl: p.avatarUrl,
+          rating: p.rating,
+          rankTier: p.rankTier,
+          team: 'red',
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+        }));
+
+        const teamBluePlayers: RankedMatchPlayer[] = teamBlueQueue.map((p) => ({
+          id: p.id,
+          name: p.name,
+          avatarUrl: p.avatarUrl,
+          rating: p.rating,
+          rankTier: p.rankTier,
+          team: 'blue',
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+        }));
+
+        const matchId = `match2v2_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const session: RankedMatchSession = {
+          matchId,
+          mode: '2vs2',
+          status: 'countdown',
+          seed: Math.floor(Math.random() * 100000),
+          createdAt: Date.now(),
+          players: [...teamRedPlayers, ...teamBluePlayers],
+          teams: {
+            teamRed: teamRedPlayers,
+            teamBlue: teamBluePlayers,
+          },
+        };
+
+        activeRankedMatches.set(matchId, session);
+
+        broadcastEvent({
+          type: 'RANKED_MATCH_FOUND',
+          matchId,
+          session,
+        });
+      }
+    }
+  }
+
+  // ==========================================
   // 1. SSE (Server-Sent Events) Endpoint
   // ==========================================
   app.get('/api/events', (req, res) => {
@@ -135,7 +368,7 @@ async function startServer() {
     sseClients.add(res);
 
     // Send initial snapshot
-    res.write(`data: ${JSON.stringify({ type: 'ROOMS_LIST', rooms: getRoomsList() })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() })}\n\n`);
 
     const pingTimer = setInterval(() => {
       try {
@@ -153,232 +386,328 @@ async function startServer() {
   });
 
   // ==========================================
-  // 2. REST API Endpoints for Guaranteed Sync
+  // 2. Presence & Community Endpoints
   // ==========================================
-  app.get('/api/health', (req, res) => {
+  app.post('/api/presence/heartbeat', (req, res) => {
+    const { id, name, avatarUrl, rating, rankTier } = req.body;
+    if (!id || !name) {
+      return res.status(400).json({ error: 'id and name are required' });
+    }
+
+    const currentDailyKey = getCurrentDailyCycleKey();
+    const existing = presenceMap.get(id);
+
+    const updatedUser: PresenceUser = {
+      id,
+      name: name.trim(),
+      avatarUrl: avatarUrl || existing?.avatarUrl || null,
+      rating: typeof rating === 'number' ? rating : existing?.rating || 0,
+      rankTier: rankTier || existing?.rankTier || 'bronze',
+      lastActive: Date.now(),
+      lastLoginDate: currentDailyKey,
+    };
+
+    presenceMap.set(id, updatedUser);
+
+    broadcastEvent({
+      type: 'PRESENCE_SNAPSHOT',
+      ...getPresenceSnapshot(),
+    });
+
+    res.json({ success: true, user: updatedUser });
+  });
+
+  app.get('/api/presence/members', (req, res) => {
+    res.json(getPresenceSnapshot());
+  });
+
+  // ==========================================
+  // 3. Ranked Matchmaking REST Endpoints
+  // ==========================================
+  app.post('/api/ranked/queue', (req, res) => {
+    const { player, mode, partyId } = req.body;
+    if (!player || !player.id || !mode) {
+      return res.status(400).json({ error: 'player and mode are required' });
+    }
+
+    // Clean from other queues first
+    const cleanQueue = (q: RankedQueuePlayer[]) => {
+      const idx = q.findIndex((p) => p.id === player.id);
+      if (idx >= 0) q.splice(idx, 1);
+    };
+    cleanQueue(rankedQueue1v1);
+    cleanQueue(rankedQueue2v2);
+
+    const queuePlayer: RankedQueuePlayer = {
+      id: player.id,
+      name: player.name,
+      avatarUrl: player.avatarUrl,
+      rating: player.rating || 0,
+      rankTier: player.rankTier || 'bronze',
+      joinedAt: Date.now(),
+      partyId: partyId || null,
+    };
+
+    if (mode === '1vs1') {
+      rankedQueue1v1.push(queuePlayer);
+      tryMatchmaking1v1();
+    } else if (mode === '2vs2') {
+      rankedQueue2v2.push(queuePlayer);
+      tryMatchmaking2v2();
+    }
+
+    broadcastEvent({
+      type: 'QUEUE_STATUS',
+      queue1v1Count: rankedQueue1v1.length,
+      queue2v2Count: rankedQueue2v2.length,
+    });
+
     res.json({
-      status: 'ok',
-      onlineWs: clientMeta.size,
-      onlineSse: sseClients.size,
-      activeRooms: rooms.size,
+      success: true,
+      queue1v1Count: rankedQueue1v1.length,
+      queue2v2Count: rankedQueue2v2.length,
     });
   });
 
-  // Get all active rooms
-  app.get('/api/rooms', (req, res) => {
-    res.json(getRoomsList());
-  });
-
-  // Get single room details
-  app.get('/api/rooms/:id', (req, res) => {
-    const room = rooms.get(req.params.id);
-    if (!room) {
-      return res.status(404).json({ error: 'Room not found' });
-    }
-    res.json(room);
-  });
-
-  // Create Room
-  app.post('/api/rooms/create', (req, res) => {
-    const { name, maxPlayers, modifiers, leaderPlayer } = req.body;
-    if (!leaderPlayer || !leaderPlayer.id) {
-      return res.status(400).json({ error: 'leaderPlayer is required' });
-    }
-
-    const newRoom: BattleRoom = {
-      id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name: (name || `${leaderPlayer.name}の部屋`).trim(),
-      leaderId: leaderPlayer.id,
-      maxPlayers: Math.max(2, Math.min(8, maxPlayers || 4)),
-      players: [{ ...leaderPlayer, isLeader: true, isReady: true, progress: 0, score: 0, mistakes: 0, lives: 3, isKO: false }],
-      modifiers: (modifiers || []).filter((m: Modifier) => m.active),
-      status: 'waiting',
-      createdAt: Date.now(),
-      seed: Math.floor(Math.random() * 100000),
-    };
-
-    rooms.set(newRoom.id, newRoom);
-
-    broadcastEvent({ type: 'ROOM_CREATED', room: newRoom });
-    broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-
-    res.json({ success: true, room: newRoom });
-  });
-
-  // Join Room
-  app.post('/api/rooms/:id/join', (req, res) => {
-    const roomId = req.params.id;
-    const { player } = req.body;
-    if (!player || !player.id) {
-      return res.status(400).json({ error: 'player object is required' });
-    }
-
-    const targetRoom = rooms.get(roomId);
-    if (!targetRoom) {
-      return res.status(404).json({ error: '部屋が見つかりませんでした' });
-    }
-
-    if (targetRoom.status === 'in_game' || targetRoom.status === 'countdown') {
-      return res.status(400).json({ error: 'この対戦はすでに開始されています' });
-    }
-
-    const existingIdx = targetRoom.players.findIndex((p) => p.id === player.id);
-    if (existingIdx === -1 && targetRoom.players.length >= targetRoom.maxPlayers) {
-      return res.status(400).json({ error: 'この部屋は満員です' });
-    }
-
-    const joinedPlayer: RoomPlayer = {
-      ...player,
-      isLeader: targetRoom.players.length === 0,
-      isReady: true,
-      progress: 0,
-      score: 0,
-      mistakes: 0,
-      lives: 3,
-      isKO: false,
-    };
-
-    if (existingIdx >= 0) {
-      targetRoom.players[existingIdx] = joinedPlayer;
-    } else {
-      targetRoom.players.push(joinedPlayer);
-    }
-
-    broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-    broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-
-    res.json({ success: true, room: targetRoom });
-  });
-
-  // Leave Room
-  app.post('/api/rooms/:id/leave', (req, res) => {
-    const roomId = req.params.id;
+  app.post('/api/ranked/cancel-queue', (req, res) => {
     const { playerId } = req.body;
-    if (!playerId) {
-      return res.status(400).json({ error: 'playerId is required' });
-    }
+    if (playerId) {
+      const idx1 = rankedQueue1v1.findIndex((p) => p.id === playerId);
+      if (idx1 >= 0) rankedQueue1v1.splice(idx1, 1);
 
-    const targetRoom = rooms.get(roomId);
-    if (targetRoom) {
-      targetRoom.players = targetRoom.players.filter((p) => p.id !== playerId);
-
-      if (targetRoom.leaderId === playerId && targetRoom.players.length > 0) {
-        targetRoom.players[0].isLeader = true;
-        targetRoom.leaderId = targetRoom.players[0].id;
-      } else if (targetRoom.players.length === 0) {
-        rooms.delete(targetRoom.id);
-      }
-
-      broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-      broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-
-      res.json({ success: true, room: targetRoom });
-    } else {
-      res.json({ success: true, room: null });
-    }
-  });
-
-  // Kick Player
-  app.post('/api/rooms/:id/kick', (req, res) => {
-    const roomId = req.params.id;
-    const { targetPlayerId } = req.body;
-    const targetRoom = rooms.get(roomId);
-
-    if (targetRoom && targetPlayerId) {
-      targetRoom.players = targetRoom.players.filter((p) => p.id !== targetPlayerId);
-
-      sendToPlayer(targetPlayerId, { type: 'KICKED_FROM_ROOM', roomId });
-      broadcastEvent({ type: 'KICKED_FROM_ROOM', roomId, targetPlayerId });
-      broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-      broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-
-      res.json({ success: true, room: targetRoom });
-    } else {
-      res.status(404).json({ error: 'Room or player not found' });
-    }
-  });
-
-  // Start Countdown
-  app.post('/api/rooms/:id/countdown', (req, res) => {
-    const roomId = req.params.id;
-    const targetRoom = rooms.get(roomId);
-
-    if (targetRoom) {
-      targetRoom.status = 'countdown';
-      targetRoom.seed = Math.floor(Math.random() * 100000);
-
-      broadcastEvent({ type: 'COUNTDOWN_STARTED', room: targetRoom });
-      broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-      broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-
-      res.json({ success: true, room: targetRoom });
-    } else {
-      res.status(404).json({ error: 'Room not found' });
-    }
-  });
-
-  // Report Live Progress
-  app.post('/api/rooms/:id/progress', (req, res) => {
-    const roomId = req.params.id;
-    const { playerId, progress, score, mistakes, finished, lives, isKO } = req.body;
-    const targetRoom = rooms.get(roomId);
-
-    if (targetRoom) {
-      targetRoom.status = 'in_game';
-      const player = targetRoom.players.find((p) => p.id === playerId);
-      if (player) {
-        player.progress = progress;
-        player.score = score;
-        player.mistakes = mistakes;
-        player.finished = finished;
-        if (typeof lives === 'number') player.lives = lives;
-        if (typeof isKO === 'boolean') player.isKO = isKO;
-        if (finished && !player.finishTime) {
-          player.finishTime = Date.now();
-        }
-      }
+      const idx2 = rankedQueue2v2.findIndex((p) => p.id === playerId);
+      if (idx2 >= 0) rankedQueue2v2.splice(idx2, 1);
 
       broadcastEvent({
-        type: 'LIVE_PROGRESS_UPDATE',
-        roomId,
-        playerId,
-        progress,
-        score,
-        mistakes,
-        lives,
-        isKO,
-        finished,
-        players: targetRoom.players,
+        type: 'QUEUE_STATUS',
+        queue1v1Count: rankedQueue1v1.length,
+        queue2v2Count: rankedQueue2v2.length,
       });
-
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Room not found' });
     }
+    res.json({ success: true });
   });
 
-  // Declare Winner Clear
-  app.post('/api/rooms/:id/declare-winner', (req, res) => {
-    const roomId = req.params.id;
-    const { winnerId, winnerName, winnerScore } = req.body;
+  app.get('/api/ranked/matches/:id', (req, res) => {
+    const match = activeRankedMatches.get(req.params.id);
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    res.json(match);
+  });
+
+  // Progress update in Ranked Match
+  app.post('/api/ranked/progress', (req, res) => {
+    const { matchId, playerId, progress, score, mistakes, lives, isKO, finished } = req.body;
+    const match = activeRankedMatches.get(matchId);
+
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    match.status = 'in_game';
+    const player = match.players.find((p) => p.id === playerId);
+    if (player) {
+      player.progress = progress;
+      player.score = score;
+      player.mistakes = mistakes;
+      if (typeof lives === 'number') player.lives = lives;
+      if (typeof isKO === 'boolean') player.isKO = isKO;
+      player.finished = finished;
+      if (finished && !player.finishTime) {
+        player.finishTime = Date.now();
+      }
+    }
+
+    // Check Match Completion Conditions
+    let matchFinished = false;
+    let winnerSide: RankedMatchSession['winnerSide'] = undefined;
+    let winnerIds: string[] = [];
+
+    if (match.mode === '1vs1') {
+      const p1 = match.players[0];
+      const p2 = match.players[1];
+
+      if (p1 && p2) {
+        if (p1.finished && !p2.finished) {
+          matchFinished = true;
+          winnerSide = 'player1';
+          winnerIds = [p1.id];
+        } else if (p2.finished && !p1.finished) {
+          matchFinished = true;
+          winnerSide = 'player2';
+          winnerIds = [p2.id];
+        } else if (p1.isKO && !p2.isKO) {
+          matchFinished = true;
+          winnerSide = 'player2';
+          winnerIds = [p2.id];
+        } else if (p2.isKO && !p1.isKO) {
+          matchFinished = true;
+          winnerSide = 'player1';
+          winnerIds = [p1.id];
+        } else if (p1.isKO && p2.isKO) {
+          matchFinished = true;
+          winnerSide = p1.score >= p2.score ? 'player1' : 'player2';
+          winnerIds = p1.score >= p2.score ? [p1.id] : [p2.id];
+        }
+      }
+    } else if (match.mode === '2vs2') {
+      const teamRed = match.players.filter((p) => p.team === 'red');
+      const teamBlue = match.players.filter((p) => p.team === 'blue');
+
+      const redFinishedCount = teamRed.filter((p) => p.finished).length;
+      const blueFinishedCount = teamBlue.filter((p) => p.finished).length;
+
+      const redAllKO = teamRed.every((p) => p.isKO);
+      const blueAllKO = teamBlue.every((p) => p.isKO);
+
+      if (redFinishedCount >= 1 && blueFinishedCount === 0) {
+        matchFinished = true;
+        winnerSide = 'teamRed';
+        winnerIds = teamRed.map((p) => p.id);
+      } else if (blueFinishedCount >= 1 && redFinishedCount === 0) {
+        matchFinished = true;
+        winnerSide = 'teamBlue';
+        winnerIds = teamBlue.map((p) => p.id);
+      } else if (redAllKO && !blueAllKO) {
+        matchFinished = true;
+        winnerSide = 'teamBlue';
+        winnerIds = teamBlue.map((p) => p.id);
+      } else if (blueAllKO && !redAllKO) {
+        matchFinished = true;
+        winnerSide = 'teamRed';
+        winnerIds = teamRed.map((p) => p.id);
+      }
+    }
+
+    if (matchFinished && match.status !== 'finished') {
+      match.status = 'finished';
+      match.winnerSide = winnerSide;
+      match.winnerIds = winnerIds;
+    }
+
     broadcastEvent({
-      type: 'MATCH_CLEARED_BY_WINNER',
-      roomId,
-      winnerId,
-      winnerName,
-      winnerScore,
+      type: 'RANKED_PROGRESS_UPDATE',
+      matchId,
+      match,
+      playerId,
+      progress,
+      score,
+      mistakes,
+      lives,
+      isKO,
+      finished,
     });
+
+    if (matchFinished) {
+      broadcastEvent({
+        type: 'RANKED_MATCH_FINISHED',
+        matchId,
+        match,
+        winnerSide,
+        winnerIds,
+      });
+    }
+
+    res.json({ success: true, match });
+  });
+
+  // Forfeit / Disconnect Penalty
+  app.post('/api/ranked/forfeit', (req, res) => {
+    const { matchId, playerId } = req.body;
+    const match = activeRankedMatches.get(matchId);
+
+    if (match && match.status !== 'finished') {
+      match.status = 'finished';
+      const forfeitingPlayer = match.players.find((p) => p.id === playerId);
+      if (forfeitingPlayer) {
+        forfeitingPlayer.isKO = true;
+        forfeitingPlayer.lives = 0;
+      }
+
+      const winners = match.players.filter((p) => p.id !== playerId);
+      match.winnerIds = winners.map((w) => w.id);
+      match.winnerSide = match.mode === '1vs1' ? 'player2' : 'teamBlue';
+
+      broadcastEvent({
+        type: 'RANKED_FORFEIT_OCCURRED',
+        matchId,
+        forfeitedPlayerId: playerId,
+        match,
+        winnerIds: match.winnerIds,
+      });
+    }
+
     res.json({ success: true });
   });
 
   // ==========================================
-  // 3. WebSocket Connection Handling
+  // 4. Party Endpoints (for 2vs2 duo play)
+  // ==========================================
+  app.post('/api/parties/create', (req, res) => {
+    const { leader } = req.body;
+    if (!leader || !leader.id) {
+      return res.status(400).json({ error: 'Leader is required' });
+    }
+
+    const partyId = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const newParty: PartyInfo = {
+      partyId,
+      leaderId: leader.id,
+      players: [leader],
+      createdAt: Date.now(),
+    };
+
+    activeParties.set(partyId, newParty);
+    broadcastEvent({ type: 'PARTY_UPDATED', party: newParty });
+
+    res.json({ success: true, party: newParty });
+  });
+
+  app.post('/api/parties/join', (req, res) => {
+    const { partyId, player } = req.body;
+    const party = activeParties.get((partyId || '').toUpperCase());
+
+    if (!party) {
+      return res.status(404).json({ error: 'パーティーコードが見つかりません' });
+    }
+
+    if (party.players.length >= 2 && !party.players.some((p) => p.id === player.id)) {
+      return res.status(400).json({ error: 'このパーティーはすでに満員です (最大2人)' });
+    }
+
+    if (!party.players.some((p) => p.id === player.id)) {
+      party.players.push(player);
+    }
+
+    broadcastEvent({ type: 'PARTY_UPDATED', party });
+    res.json({ success: true, party });
+  });
+
+  app.post('/api/parties/leave', (req, res) => {
+    const { partyId, playerId } = req.body;
+    const party = activeParties.get((partyId || '').toUpperCase());
+
+    if (party) {
+      party.players = party.players.filter((p) => p.id !== playerId);
+      if (party.players.length === 0) {
+        activeParties.delete(party.partyId);
+      } else if (party.leaderId === playerId) {
+        party.leaderId = party.players[0].id;
+      }
+      broadcastEvent({ type: 'PARTY_UPDATED', party: party.players.length > 0 ? party : null });
+    }
+
+    res.json({ success: true });
+  });
+
+  // ==========================================
+  // 5. WebSocket Connection Handling
   // ==========================================
   wss.on('connection', (ws) => {
-    clientMeta.set(ws, { playerId: '', roomId: null, name: '' });
+    clientMeta.set(ws, { playerId: '', name: '' });
 
     // Send initial snapshot on connect
-    ws.send(JSON.stringify({ type: 'ROOMS_LIST', rooms: getRoomsList() }));
+    ws.send(JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() }));
 
     ws.on('message', (raw) => {
       try {
@@ -394,164 +723,8 @@ async function startServer() {
             break;
           }
 
-          case 'GET_ROOMS': {
-            ws.send(JSON.stringify({ type: 'ROOMS_LIST', rooms: getRoomsList() }));
-            break;
-          }
-
-          case 'CREATE_ROOM': {
-            const { name, maxPlayers, modifiers, leaderPlayer } = msg;
-            const newRoom: BattleRoom = {
-              id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-              name: (name || `${leaderPlayer.name}の部屋`).trim(),
-              leaderId: leaderPlayer.id,
-              maxPlayers: Math.max(2, Math.min(8, maxPlayers || 4)),
-              players: [{ ...leaderPlayer, isLeader: true, isReady: true, progress: 0, score: 0, mistakes: 0, lives: 3, isKO: false }],
-              modifiers: (modifiers || []).filter((m: Modifier) => m.active),
-              status: 'waiting',
-              createdAt: Date.now(),
-              seed: Math.floor(Math.random() * 100000),
-            };
-
-            rooms.set(newRoom.id, newRoom);
-            if (meta) {
-              meta.roomId = newRoom.id;
-              meta.playerId = leaderPlayer.id;
-              meta.name = leaderPlayer.name;
-            }
-
-            broadcastEvent({ type: 'ROOM_CREATED', room: newRoom });
-            broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-            break;
-          }
-
-          case 'JOIN_ROOM': {
-            const { roomId, player } = msg;
-            const targetRoom = rooms.get(roomId);
-
-            if (!targetRoom) {
-              ws.send(JSON.stringify({ type: 'ERROR', message: '部屋が見つかりませんでした' }));
-              return;
-            }
-
-            if (targetRoom.players.length >= targetRoom.maxPlayers && !targetRoom.players.some((p) => p.id === player.id)) {
-              ws.send(JSON.stringify({ type: 'ERROR', message: 'この部屋は満員です' }));
-              return;
-            }
-
-            if (targetRoom.status === 'in_game' || targetRoom.status === 'countdown') {
-              ws.send(JSON.stringify({ type: 'ERROR', message: 'この対戦はすでに開始されています' }));
-              return;
-            }
-
-            const existingIdx = targetRoom.players.findIndex((p) => p.id === player.id);
-            const joinedPlayer: RoomPlayer = {
-              ...player,
-              isLeader: targetRoom.players.length === 0,
-              isReady: true,
-              progress: 0,
-              score: 0,
-              mistakes: 0,
-              lives: 3,
-              isKO: false,
-            };
-
-            if (existingIdx >= 0) {
-              targetRoom.players[existingIdx] = joinedPlayer;
-            } else {
-              targetRoom.players.push(joinedPlayer);
-            }
-
-            if (meta) {
-              meta.roomId = targetRoom.id;
-              meta.playerId = player.id;
-              meta.name = player.name;
-            }
-
-            broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-            broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-            break;
-          }
-
-          case 'LEAVE_ROOM': {
-            const { roomId, playerId } = msg;
-            const targetRoom = rooms.get(roomId);
-            if (targetRoom) {
-              targetRoom.players = targetRoom.players.filter((p) => p.id !== playerId);
-
-              if (targetRoom.leaderId === playerId && targetRoom.players.length > 0) {
-                targetRoom.players[0].isLeader = true;
-                targetRoom.leaderId = targetRoom.players[0].id;
-              } else if (targetRoom.players.length === 0) {
-                rooms.delete(targetRoom.id);
-              }
-
-              if (meta) meta.roomId = null;
-
-              broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-              broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-            }
-            break;
-          }
-
-          case 'KICK_PLAYER': {
-            const { roomId, targetPlayerId } = msg;
-            const targetRoom = rooms.get(roomId);
-            if (targetRoom) {
-              targetRoom.players = targetRoom.players.filter((p) => p.id !== targetPlayerId);
-
-              sendToPlayer(targetPlayerId, { type: 'KICKED_FROM_ROOM', roomId });
-              broadcastEvent({ type: 'KICKED_FROM_ROOM', roomId, targetPlayerId });
-              broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-              broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-            }
-            break;
-          }
-
-          case 'START_COUNTDOWN': {
-            const { roomId } = msg;
-            const targetRoom = rooms.get(roomId);
-            if (targetRoom) {
-              targetRoom.status = 'countdown';
-              targetRoom.seed = Math.floor(Math.random() * 100000);
-              broadcastEvent({ type: 'COUNTDOWN_STARTED', room: targetRoom });
-              broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-              broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-            }
-            break;
-          }
-
-          case 'PROGRESS_UPDATE': {
-            const { roomId, playerId, progress, score, mistakes, finished, lives, isKO } = msg;
-            const targetRoom = rooms.get(roomId);
-            if (targetRoom) {
-              targetRoom.status = 'in_game';
-              const player = targetRoom.players.find((p) => p.id === playerId);
-              if (player) {
-                player.progress = progress;
-                player.score = score;
-                player.mistakes = mistakes;
-                player.finished = finished;
-                if (typeof lives === 'number') player.lives = lives;
-                if (typeof isKO === 'boolean') player.isKO = isKO;
-                if (finished && !player.finishTime) {
-                  player.finishTime = Date.now();
-                }
-              }
-
-              broadcastEvent({
-                type: 'LIVE_PROGRESS_UPDATE',
-                roomId,
-                playerId,
-                progress,
-                score,
-                mistakes,
-                lives,
-                isKO,
-                finished,
-                players: targetRoom.players,
-              });
-            }
+          case 'GET_PRESENCE': {
+            ws.send(JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() }));
             break;
           }
         }
@@ -561,22 +734,20 @@ async function startServer() {
     });
 
     ws.on('close', () => {
-      const meta = clientMeta.get(ws);
-      if (meta && meta.roomId && meta.playerId) {
-        const targetRoom = rooms.get(meta.roomId);
-        if (targetRoom) {
-          targetRoom.players = targetRoom.players.filter((p) => p.id !== meta.playerId);
-          if (targetRoom.leaderId === meta.playerId && targetRoom.players.length > 0) {
-            targetRoom.players[0].isLeader = true;
-            targetRoom.leaderId = targetRoom.players[0].id;
-          } else if (targetRoom.players.length === 0) {
-            rooms.delete(targetRoom.id);
-          }
-          broadcastEvent({ type: 'ROOM_UPDATED', room: targetRoom });
-          broadcastEvent({ type: 'ROOMS_LIST', rooms: getRoomsList() });
-        }
-      }
       clientMeta.delete(ws);
+    });
+  });
+
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      onlineWs: clientMeta.size,
+      onlineSse: sseClients.size,
+      presenceTotal: presenceMap.size,
+      queue1v1: rankedQueue1v1.length,
+      queue2v2: rankedQueue2v2.length,
+      activeMatches: activeRankedMatches.size,
     });
   });
 
@@ -625,7 +796,7 @@ async function startServer() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT} with SSE, WebSockets & REST API`);
+    console.log(`Server running on http://0.0.0.0:${PORT} with Ranked & Presence Engine`);
   });
 }
 

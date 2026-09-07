@@ -8,6 +8,7 @@ export function getStoredUserStats(): UserStats {
     if (raw) {
       const parsed = JSON.parse(raw);
       const userId = parsed.userId || `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+      const rating = typeof parsed.rating === 'number' ? parsed.rating : 0;
       return {
         userId,
         energy: typeof parsed.energy === 'number' ? parsed.energy : 10,
@@ -18,6 +19,11 @@ export function getStoredUserStats(): UserStats {
         userName: parsed.userName || 'うおリンゴ会員',
         avatarUrl: parsed.avatarUrl || null,
         battleWins: parsed.battleWins || 0,
+        rating,
+        rankTier: parsed.rankTier || (rating >= 600 ? 'heaven' : rating >= 400 ? 'diamond' : rating >= 300 ? 'platinum' : rating >= 200 ? 'gold' : rating >= 100 ? 'silver' : 'bronze'),
+        placementDone: !!parsed.placementDone,
+        rankedWins: parsed.rankedWins || 0,
+        rankedLosses: parsed.rankedLosses || 0,
       };
     }
   } catch {
@@ -34,6 +40,11 @@ export function getStoredUserStats(): UserStats {
     userName: 'うおリンゴ会員',
     avatarUrl: null,
     battleWins: 0,
+    rating: 0,
+    rankTier: 'bronze',
+    placementDone: false,
+    rankedWins: 0,
+    rankedLosses: 0,
   };
 }
 
