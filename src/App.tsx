@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { CodeEntryGate } from './components/CodeEntryGate';
-import { UnderPreparationScreen } from './components/UnderPreparationScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { ModifierModal } from './components/ModifierModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -16,14 +14,13 @@ import {
   getCurrentDailyCycleKey,
   calculateNextDailyStreak
 } from './utils/storage';
-import { checkExistingSession, clearGateSession } from './utils/security';
 import { realtimePresence } from './utils/multiplayer';
 import { audio } from './utils/audio';
 
-type AppPhase = 'gate' | 'preparing' | 'home' | 'quiz' | 'ranked';
+type AppPhase = 'home' | 'quiz' | 'ranked';
 
 export function App() {
-  const [phase, setPhase] = useState<AppPhase>('gate');
+  const [phase, setPhase] = useState<AppPhase>('home');
   const [stats, setStats] = useState<UserStats>(getStoredUserStats);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
@@ -55,13 +52,6 @@ export function App() {
     }
   }, [stats.userId, stats.userName, stats.avatarUrl, stats.rating, stats.rankTier]);
 
-  useEffect(() => {
-    // If gate was previously unlocked in this browser
-    if (checkExistingSession()) {
-      setPhase('home');
-    }
-  }, []);
-
   // Update storage when stats change
   const updateStats = (updater: (prev: UserStats) => UserStats) => {
     setStats((prev) => {
@@ -79,17 +69,7 @@ export function App() {
     });
   };
 
-  // 1. Gate Unlock -> Go to Preparing Screen
-  const handleUnlockGate = () => {
-    setPhase('preparing');
-  };
-
-  // 2. Preparing Screen -> Complete to Home
-  const handleCompleteToHome = () => {
-    setPhase('home');
-  };
-
-  // 3. Open Practice Mode -> Show Modifier Modal
+  // 1. Open Practice Mode -> Show Modifier Modal
   const handleOpenPractice = () => {
     setShowModifierModal(true);
   };
@@ -200,24 +180,10 @@ export function App() {
     setShowProfileModal(false);
   };
 
-  // Gate relock handler
-  const handleRelockGate = () => {
-    clearGateSession();
-    setPhase('gate');
-  };
-
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col justify-between selection:bg-[#58CC02] selection:text-white">
       {/* Main View Area */}
       <main className="flex-1 flex items-center justify-center p-4">
-        {phase === 'gate' && (
-          <CodeEntryGate onUnlockSuccess={handleUnlockGate} />
-        )}
-
-        {phase === 'preparing' && (
-          <UnderPreparationScreen onCompleteToHome={handleCompleteToHome} />
-        )}
-
         {phase === 'home' && (
           <HomeScreen
             stats={stats}
@@ -292,15 +258,7 @@ export function App() {
       {/* Subtle Footer */}
       {phase === 'home' && (
         <footer className="py-4 text-center text-xs font-bold text-[#AFAFAF] border-t border-[#F0F0F0]">
-          <div className="flex items-center justify-center gap-4">
-            <span>うおリンゴ (Uolingo) © 英語学習・ランクマッチ</span>
-            <button
-              onClick={handleRelockGate}
-              className="text-[#D0D0D0] hover:text-[#777777] underline cursor-pointer"
-            >
-              ゲートを再施錠
-            </button>
-          </div>
+          <span>うおリンゴ (Uolingo) © 英語学習・ランクマッチ</span>
         </footer>
       )}
     </div>

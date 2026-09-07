@@ -132,9 +132,18 @@ export function CodeEntryGate({ onUnlockSuccess }: CodeEntryGateProps) {
             id="submit-code-button"
             type="submit"
             disabled={lockoutTimer > 0 || isVerifying}
-            className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-base font-black flex items-center justify-center disabled:opacity-50"
+            className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-base font-black flex items-center justify-center disabled:opacity-50 cursor-pointer"
           >
             {isVerifying ? 'チェック中...' : '突破する'}
+          </button>
+
+          {/* Quick Skip Button */}
+          <button
+            type="button"
+            onClick={() => onUnlockSuccess()}
+            className="w-full py-2 text-xs font-bold text-[#AFAFAF] hover:text-[#58CC02] text-center transition-colors cursor-pointer"
+          >
+            スキップしてホームへ移動 →
           </button>
         </form>
       </div>

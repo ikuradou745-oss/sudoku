@@ -11,7 +11,10 @@ import {
   Bot,
   Check,
   Copy,
-  LogOut
+  LogOut,
+  ChevronDown,
+  ChevronUp,
+  Info
 } from 'lucide-react';
 import { UserStats, RankedMatchSession } from '../types';
 import { RANK_TIERS, getRankInfo } from '../utils/rank';
@@ -28,6 +31,7 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   const [selectedMode, setSelectedMode] = useState<'1vs1' | '2vs2'>('1vs1');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [queueTimer, setQueueTimer] = useState<number>(0);
+  const [showRules, setShowRules] = useState<boolean>(false);
 
   // Party State for 2vs2
   const [currentParty, setCurrentParty] = useState<PartyInfo | null>(null);
@@ -77,65 +81,27 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
     return () => clearInterval(interval);
   }, [isSearching]);
 
-  // Fallback simulator for solo practice if waiting > 10 seconds or immediate placement match
-  useEffect(() => {
-    if (isSearching && queueTimer >= 10) {
-      // Create a fair match with a real-like simulated challenger if no human queues
-      const opponentRating = Math.max(0, (stats.rating || 100) + (Math.floor(Math.random() * 40) - 20));
-      const opponentRank = getRankInfo(opponentRating);
-      const botNames = ['サクラ', 'ケンタ', 'ハヤト', 'ユウキ', 'エマ', 'タクミ', 'アスカ'];
-      const randomName = botNames[Math.floor(Math.random() * botNames.length)];
+  // Launch match with simulated opponent or AI challenger
+  const launchMatchWithOpponent = () => {
+    const opponentRating = Math.max(0, (stats.rating || 100) + (Math.floor(Math.random() * 40) - 20));
+    const opponentRank = getRankInfo(opponentRating);
+    const botNames = ['サクラ', 'ケンタ', 'ハヤト', 'ユウキ', 'エマ', 'タクミ', 'アスカ'];
+    const randomName = botNames[Math.floor(Math.random() * botNames.length)];
 
-      if (selectedMode === '1vs1') {
-        const dummySession: RankedMatchSession = {
-          matchId: `sim_match_${Date.now()}`,
-          mode: '1vs1',
-          status: 'countdown',
-          seed: Math.floor(Math.random() * 100000),
-          createdAt: Date.now(),
-          players: [
-            {
-              id: stats.userId || 'me',
-              name: stats.userName || '会員',
-              avatarUrl: stats.avatarUrl,
-              rating: stats.rating || 0,
-              rankTier: stats.rankTier || 'bronze',
-              progress: 0,
-              score: 0,
-              mistakes: 0,
-              lives: 3,
-              isKO: false,
-              finished: false,
-            },
-            {
-              id: `bot_${Date.now()}`,
-              name: randomName,
-              avatarUrl: null,
-              rating: opponentRating,
-              rankTier: opponentRank.tier,
-              progress: 0,
-              score: 0,
-              mistakes: 0,
-              lives: 3,
-              isKO: false,
-              finished: false,
-              isBot: true,
-            },
-          ],
-        };
-        audio.playMatchFound();
-        setIsSearching(false);
-        onStartMatch(dummySession, false);
-      } else {
-        // 2vs2 fallback
-        const teamRed = [
+    if (selectedMode === '1vs1') {
+      const dummySession: RankedMatchSession = {
+        matchId: `sim_match_${Date.now()}`,
+        mode: '1vs1',
+        status: 'countdown',
+        seed: Math.floor(Math.random() * 100000),
+        createdAt: Date.now(),
+        players: [
           {
             id: stats.userId || 'me',
             name: stats.userName || '会員',
             avatarUrl: stats.avatarUrl,
             rating: stats.rating || 0,
             rankTier: stats.rankTier || 'bronze',
-            team: 'red' as const,
             progress: 0,
             score: 0,
             mistakes: 0,
@@ -144,12 +110,11 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
             finished: false,
           },
           {
-            id: `bot_ally_${Date.now()}`,
-            name: 'タクミ (味方)',
+            id: `bot_${Date.now()}`,
+            name: randomName,
             avatarUrl: null,
             rating: opponentRating,
             rankTier: opponentRank.tier,
-            team: 'red' as const,
             progress: 0,
             score: 0,
             mistakes: 0,
@@ -158,53 +123,96 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
             finished: false,
             isBot: true,
           },
-        ];
-        const teamBlue = [
-          {
-            id: `bot_enemy1_${Date.now()}`,
-            name: 'ハヤト',
-            avatarUrl: null,
-            rating: opponentRating + 10,
-            rankTier: opponentRank.tier,
-            team: 'blue' as const,
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-            lives: 3,
-            isKO: false,
-            finished: false,
-            isBot: true,
-          },
-          {
-            id: `bot_enemy2_${Date.now()}`,
-            name: 'ユウキ',
-            avatarUrl: null,
-            rating: opponentRating - 10,
-            rankTier: opponentRank.tier,
-            team: 'blue' as const,
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-            lives: 3,
-            isKO: false,
-            finished: false,
-            isBot: true,
-          },
-        ];
+        ],
+      };
+      audio.playMatchFound();
+      setIsSearching(false);
+      onStartMatch(dummySession, false);
+    } else {
+      // 2vs2 fallback
+      const teamRed = [
+        {
+          id: stats.userId || 'me',
+          name: stats.userName || '会員',
+          avatarUrl: stats.avatarUrl,
+          rating: stats.rating || 0,
+          rankTier: stats.rankTier || 'bronze',
+          team: 'red' as const,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+        },
+        {
+          id: `bot_ally_${Date.now()}`,
+          name: 'タクミ (味方)',
+          avatarUrl: null,
+          rating: opponentRating,
+          rankTier: opponentRank.tier,
+          team: 'red' as const,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          isBot: true,
+        },
+      ];
+      const teamBlue = [
+        {
+          id: `bot_enemy1_${Date.now()}`,
+          name: 'ハヤト',
+          avatarUrl: null,
+          rating: opponentRating + 10,
+          rankTier: opponentRank.tier,
+          team: 'blue' as const,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          isBot: true,
+        },
+        {
+          id: `bot_enemy2_${Date.now()}`,
+          name: 'ユウキ',
+          avatarUrl: null,
+          rating: opponentRating - 10,
+          rankTier: opponentRank.tier,
+          team: 'blue' as const,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          isBot: true,
+        },
+      ];
 
-        const session2v2: RankedMatchSession = {
-          matchId: `sim_2v2_${Date.now()}`,
-          mode: '2vs2',
-          status: 'countdown',
-          seed: Math.floor(Math.random() * 100000),
-          createdAt: Date.now(),
-          players: [...teamRed, ...teamBlue],
-          teams: { teamRed, teamBlue },
-        };
-        audio.playMatchFound();
-        setIsSearching(false);
-        onStartMatch(session2v2, false);
-      }
+      const session2v2: RankedMatchSession = {
+        matchId: `sim_2v2_${Date.now()}`,
+        mode: '2vs2',
+        status: 'countdown',
+        seed: Math.floor(Math.random() * 100000),
+        createdAt: Date.now(),
+        players: [...teamRed, ...teamBlue],
+        teams: { teamRed, teamBlue },
+      };
+      audio.playMatchFound();
+      setIsSearching(false);
+      onStartMatch(session2v2, false);
+    }
+  };
+
+  // Fallback simulator if waiting > 3 seconds
+  useEffect(() => {
+    if (isSearching && queueTimer >= 3) {
+      launchMatchWithOpponent();
     }
   }, [isSearching, queueTimer]);
 
@@ -366,14 +374,23 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               </div>
             </div>
 
-            {/* Cancel Button */}
-            <div>
+            {/* Action Buttons in Queue */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-xs mx-auto">
+              <button
+                id="instant-start-match-btn"
+                onClick={launchMatchWithOpponent}
+                className="duo-btn duo-btn-green w-full py-3 rounded-2xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <Swords className="w-4 h-4 text-white" />
+                <span>今すぐ対戦開始！</span>
+              </button>
+
               <button
                 id="cancel-matchmaking-btn"
                 onClick={handleCancelQueue}
-                className="duo-btn duo-btn-gray px-8 py-3 rounded-2xl text-sm font-black cursor-pointer shadow-xs"
+                className="duo-btn duo-btn-gray w-full py-3 rounded-2xl text-xs font-black cursor-pointer shadow-xs"
               >
-                マッチングをキャンセル
+                キャンセル
               </button>
             </div>
           </div>
@@ -617,31 +634,59 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               </div>
             )}
 
-            {/* Rank Rules Overview */}
-            <div className="p-3.5 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5] text-xs space-y-1.5 text-[#777777]">
-              <div className="font-black text-[#3C3C3C] flex items-center gap-1.5">
-                <ShieldAlert className="w-3.5 h-3.5 text-[#FF9600]" />
-                <span>ランクマッチ対戦ルール</span>
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-[11px] font-bold">
-                <li>問題数: 10問 / ライフ: 3 (❤️3)</li>
-                <li>先に10問クリアしたプレイヤー（またはチーム）の勝利！</li>
-                <li>勝利時: レート <span className="text-[#58A700] font-black">+15〜25 RP</span> / 敗北時: レート <span className="text-[#FF4B4B] font-black">-5〜15 RP</span></li>
-                <li className="text-[#FF4B4B]">※ 試合中の再読み込み・切断は即座に相手の勝利＆敗北ペナルティとなります。</li>
-              </ul>
-            </div>
+            {/* Rank Rules & Tier Ranges Toggle Button */}
+            <div className="rounded-2xl border-2 border-[#E5E5E5] bg-[#F7F7F7] overflow-hidden">
+              <button
+                type="button"
+                id="toggle-rank-rules-btn"
+                onClick={() => {
+                  audio.playTap();
+                  setShowRules(!showRules);
+                }}
+                className="w-full p-3 flex items-center justify-between text-xs font-black text-[#4B4B4B] hover:bg-[#EFEFEF] transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-[#FF9600]" />
+                  <span>ルール・階級一覧を確認する</span>
+                </div>
+                <div className="flex items-center gap-1 text-[#777777]">
+                  <span className="text-[11px] font-bold">{showRules ? '閉じる' : '表示'}</span>
+                  {showRules ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </button>
 
-            {/* Tier Ranges reference list */}
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center text-[10px] font-black">
-              {Object.values(RANK_TIERS).map((t) => (
-                <div key={t.tier} className={`p-1.5 rounded-xl border ${t.badgeBg}`}>
-                  <div>{t.icon}</div>
-                  <div className="font-bold text-[10px] truncate">{t.name}</div>
-                  <div className="font-mono text-[9px] text-[#777777]">
-                    {t.tier === 'heaven' ? '600+' : `${t.minRating}~${t.maxRating}`}
+              {showRules && (
+                <div className="p-3.5 border-t border-[#E5E5E5] bg-white space-y-3 animate-in fade-in duration-150">
+                  <div className="space-y-1 text-xs text-[#777777]">
+                    <div className="font-black text-[#3C3C3C] flex items-center gap-1.5 text-[11px]">
+                      <Info className="w-3.5 h-3.5 text-[#1CB0F6]" />
+                      <span>対戦ルール概要</span>
+                    </div>
+                    <ul className="list-disc list-inside space-y-1 text-[11px] font-bold">
+                      <li>問題数: 10問 / ライフ: 3 (❤️3)</li>
+                      <li>間違えるとライフが1つ減り、次の問題へ進みます。</li>
+                      <li>ライフが0になるとKO敗北！先に10問到達したプレイヤー（チーム）の勝利！</li>
+                      <li>勝利時: レート <span className="text-[#58A700] font-black">+15〜25 RP</span> / 敗北時: レート <span className="text-[#FF4B4B] font-black">-5〜15 RP</span></li>
+                    </ul>
+                  </div>
+
+                  {/* Tier Ranges reference list */}
+                  <div>
+                    <div className="text-[10px] font-black text-[#777777] mb-1.5">階級（ランク帯）一覧</div>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center text-[10px] font-black">
+                      {Object.values(RANK_TIERS).map((t) => (
+                        <div key={t.tier} className={`p-1.5 rounded-xl border ${t.badgeBg}`}>
+                          <div>{t.icon}</div>
+                          <div className="font-bold text-[10px] truncate">{t.name}</div>
+                          <div className="font-mono text-[9px] text-[#777777]">
+                            {t.tier === 'heaven' ? '600+' : `${t.minRating}~${t.maxRating}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
 
             {/* Main Start Matchmaking Button */}

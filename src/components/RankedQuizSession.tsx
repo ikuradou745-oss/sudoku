@@ -269,6 +269,7 @@ export function RankedQuizSession({
       setFeedback('wrong');
       const newMistakes = mistakes + 1;
       const newLives = Math.max(0, lives - 1);
+      const newProgress = currentIndex + 1;
       setMistakes(newMistakes);
       setLives(newLives);
 
@@ -288,24 +289,24 @@ export function RankedQuizSession({
           handleMatchEnd(false);
         }, 1000);
       } else {
+        const willFinish = newProgress >= 10;
         realtimePresence.sendMatchProgress(
           session.matchId,
-          currentIndex,
+          newProgress,
           score,
           newMistakes,
           newLives,
           false,
-          false
+          willFinish
         );
         setTimeout(() => {
-          setFeedback(null);
-          setIsAnswerChecking(false);
-          // Reset word choices
-          if (currentQ.type === 'order' && currentQ.wordOptions) {
-            setAvailableWords([...currentQ.wordOptions].sort(() => Math.random() - 0.5));
-            setSelectedWords([]);
+          if (willFinish) {
+            setIsFinished(true);
+            handleMatchEnd(false);
+          } else {
+            setCurrentIndex((prev) => prev + 1);
           }
-        }, 1200);
+        }, 1000);
       }
     }
   };
@@ -711,6 +712,31 @@ export function RankedQuizSession({
           </div>
         )}
       </div>
+
+      {/* Answer Feedback Banner */}
+      {feedback && (
+        <div 
+          className={`p-3.5 rounded-2xl border-2 mb-4 animate-in fade-in slide-in-from-bottom-2 duration-200 ${
+            feedback === 'correct' 
+              ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#15803D]' 
+              : 'bg-[#FEF2F2] border-[#FCA5A5] text-[#B91C1C]'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{feedback === 'correct' ? '🎉' : '💔'}</span>
+              <span className="font-black text-sm">
+                {feedback === 'correct' ? '正解！ +120pt' : '不正解！（ライフ -1）'}
+              </span>
+            </div>
+            {feedback === 'wrong' && (
+              <span className="text-xs font-bold text-[#7F1D1D]">
+                正解: <span className="font-black font-mono">{currentQ.correctAnswer}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Submit Button for Order type */}
       {currentQ.type === 'order' && (
