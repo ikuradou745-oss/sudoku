@@ -9,10 +9,17 @@ import {
   ArrowRight,
   Settings,
   User,
-  Trophy
+  Trophy,
+  Flame
 } from 'lucide-react';
 import { UserStats } from '../types';
-import { isDailyCompletedToday, getNextResetTimeString } from '../utils/storage';
+import { 
+  isDailyCompletedToday, 
+  getNextResetTimeString,
+  getEffectiveDailyStreak,
+  calculateNextDailyStreak,
+  getDailyStreakMultiplier
+} from '../utils/storage';
 import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
 
@@ -54,6 +61,12 @@ export function HomeScreen({
 
   const userRank = getRankInfo(stats.rating || 0);
 
+  // Daily Streak Calculations
+  const effectiveStreak = getEffectiveDailyStreak(stats.lastDailyDate, stats.streak);
+  const nextStreak = calculateNextDailyStreak(stats.lastDailyDate, stats.streak);
+  const nextMultiplier = getDailyStreakMultiplier(nextStreak);
+  const expectedReward = Math.round(15 * nextMultiplier);
+
   return (
     <div className="w-full max-w-md mx-auto px-4 py-8">
       {/* Top Header: ⚡️ Count on Left, Rank Badge, Community & Settings on Right */}
@@ -74,12 +87,19 @@ export function HomeScreen({
 
         {/* Right side: Streak & Sound & Profile & Community 👥 */}
         <div className="flex items-center gap-1.5">
-          {stats.streak > 0 && (
-            <div className="flex items-center gap-1 bg-[#F7F7F7] border-2 border-[#E5E5E5] px-2.5 py-1.5 rounded-2xl text-xs font-black text-[#FF9600]">
-              <span>🔥</span>
-              <span>{stats.streak}日</span>
-            </div>
-          )}
+          {/* Daily Streak Flame */}
+          <div 
+            className="flex items-center gap-1 bg-[#FFF5EB] border-2 border-[#FED7AA] px-2.5 py-1.5 rounded-2xl text-xs font-black text-[#EA580C] shadow-2xs"
+            title={`デイリー連勝記録: ${effectiveStreak}日連続 (報酬倍率 ×${getDailyStreakMultiplier(effectiveStreak || 1)} / 最大5倍)`}
+          >
+            <Flame className="w-4 h-4 text-[#F97316] fill-[#F97316] animate-bounce" />
+            <span>{effectiveStreak}連勝</span>
+            {effectiveStreak > 1 && (
+              <span className="text-[10px] bg-[#EA580C] text-white px-1 py-0.2 rounded-md font-mono">
+                {getDailyStreakMultiplier(effectiveStreak)}x
+              </span>
+            )}
+          </div>
 
           {/* Sound Toggle */}
           <button
@@ -195,7 +215,7 @@ export function HomeScreen({
           </div>
         </button>
 
-        {/* 2. デイリーセット */}
+        {/* 2. デイリーセット (連勝報酬倍率 1x〜5x) */}
         <button
           id="start-daily-btn"
           onClick={() => {
@@ -217,11 +237,21 @@ export function HomeScreen({
               <Calendar className="w-5 h-5" />
             </div>
             <div>
-              <div className={`text-lg font-black ${dailyDone ? 'text-[#777777]' : 'text-white'}`}>
-                デイリーセット
+              <div className="flex items-center gap-2">
+                <span className={`text-lg font-black ${dailyDone ? 'text-[#777777]' : 'text-white'}`}>
+                  デイリーセット
+                </span>
+                {!dailyDone && (
+                  <span className="text-[10px] font-black bg-[#FF9600] text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs">
+                    <Flame className="w-3 h-3 fill-white" />
+                    <span>{nextStreak}連勝で{nextMultiplier}倍!</span>
+                  </span>
+                )}
               </div>
-              <div className={`text-xs font-bold ${dailyDone ? 'text-[#AFAFAF]' : 'text-white/90'}`}>
-                {dailyDone ? `クリア済み (次回リセット ${resetCountdown})` : '1日1回限定・厳選5問'}
+              <div className={`text-xs font-bold ${dailyDone ? 'text-[#AFAFAF]' : 'text-white/90'} mt-0.5`}>
+                {dailyDone 
+                  ? `本日クリア済み (🔥${effectiveStreak}連勝中 / 次回 ${resetCountdown})` 
+                  : `1日1回限定・厳選5問 (基本15⚡️ × 連勝倍率)`}
               </div>
             </div>
           </div>
@@ -234,9 +264,14 @@ export function HomeScreen({
               </span>
             ) : (
               <>
-                <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
-                  15⚡️
-                </span>
+                <div className="flex flex-col items-end">
+                  <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <span>⚡️ +{expectedReward}</span>
+                    {nextMultiplier > 1 && (
+                      <span className="text-[10px] text-[#FFD966]">({nextMultiplier}x)</span>
+                    )}
+                  </span>
+                </div>
                 <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
               </>
             )}

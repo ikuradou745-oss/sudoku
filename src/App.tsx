@@ -13,7 +13,8 @@ import { QUESTION_BANK } from './data/questions';
 import { 
   getStoredUserStats, 
   saveUserStats, 
-  getCurrentDailyCycleKey 
+  getCurrentDailyCycleKey,
+  calculateNextDailyStreak
 } from './utils/storage';
 import { checkExistingSession, clearGateSession } from './utils/security';
 import { realtimePresence } from './utils/multiplayer';
@@ -140,11 +141,14 @@ export function App() {
     reward: number;
     perfect: boolean;
     mistakes: number;
+    streak?: number;
   }) => {
     if (result.completed) {
       updateStats((prev) => {
         const nextEnergy = prev.energy + result.reward;
-        const nextStreak = prev.streak + (quizMode === 'daily' ? 1 : 0);
+        const nextStreak = quizMode === 'daily' 
+          ? (result.streak ?? calculateNextDailyStreak(prev.lastDailyDate, prev.streak))
+          : prev.streak;
         const nextLastDaily = quizMode === 'daily' ? getCurrentDailyCycleKey() : prev.lastDailyDate;
 
         return {
@@ -232,6 +236,7 @@ export function App() {
             mode={quizMode}
             questions={quizQuestions}
             modifiers={activeModifiers}
+            stats={stats}
             onFinish={handleQuizFinish}
             onExit={handleExitQuiz}
           />

@@ -10,12 +10,14 @@ import {
   Trash2, 
   User, 
   Grid,
-  Sparkles
+  Sparkles,
+  Flame
 } from 'lucide-react';
 import { audio } from '../utils/audio';
 
 import { UserStats } from '../types';
 import { getRankInfo } from '../utils/rank';
+import { getEffectiveDailyStreak, getDailyStreakMultiplier } from '../utils/storage';
 
 type GridSize = 16 | 32 | 64 | 'smooth';
 type DrawingTool = 'pen' | 'line' | 'fill' | 'eraser';
@@ -468,6 +470,35 @@ export function ProfileModal({
             </span>
           </div>
         </div>
+
+        {/* Daily Streak & Multiplier Status Card */}
+        {(() => {
+          const effectiveStreak = getEffectiveDailyStreak(stats?.lastDailyDate || null, stats?.streak || 1);
+          const streakMultiplier = getDailyStreakMultiplier(effectiveStreak || 1);
+          return (
+            <div className="mb-4 p-3 rounded-2xl bg-[#FFF7ED] border-2 border-[#FED7AA] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#FFEDD5] border border-[#FDBA74] flex items-center justify-center">
+                  <Flame className="w-4 h-4 text-[#EA580C] fill-[#EA580C]" />
+                </div>
+                <div>
+                  <div className="text-xs font-black text-[#9A3412] flex items-center gap-1.5">
+                    <span>デイリー連勝記録:</span>
+                    <span className="text-sm font-mono font-black text-[#EA580C]">
+                      {effectiveStreak}日連続
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-bold text-[#C2410C]">
+                    現在のデイリー報酬倍率: <span className="font-black text-[#EA580C] font-mono">{streakMultiplier}倍</span> (最大5倍)
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] font-black bg-[#EA580C] text-white px-2 py-1 rounded-lg shadow-2xs font-mono">
+                {streakMultiplier}x BOOST
+              </span>
+            </div>
+          );
+        })()}
 
         {/* 1. User Name Change Section (Max 12 chars) */}
         <div className="mb-5">

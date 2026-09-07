@@ -8,9 +8,15 @@ import {
   Sparkles, 
   RotateCcw,
   ArrowRight,
-  Tv
+  Tv,
+  Flame
 } from 'lucide-react';
-import { Question, Modifier } from '../types';
+import { Question, Modifier, UserStats } from '../types';
+import { 
+  calculateNextDailyStreak, 
+  getDailyStreakMultiplier, 
+  calculateDailyReward 
+} from '../utils/storage';
 import { audio } from '../utils/audio';
 import { AdModal } from './AdModal';
 
@@ -18,11 +24,13 @@ interface QuizSessionProps {
   mode: 'practice' | 'daily';
   questions: Question[];
   modifiers?: Modifier[];
+  stats?: UserStats;
   onFinish: (result: {
     completed: boolean;
     reward: number;
     perfect: boolean;
     mistakes: number;
+    streak?: number;
   }) => void;
   onExit: () => void;
 }
@@ -31,6 +39,7 @@ export function QuizSession({
   mode,
   questions,
   modifiers = [],
+  stats,
   onFinish,
   onExit,
 }: QuizSessionProps) {
@@ -44,6 +53,10 @@ export function QuizSession({
   const [showAdModal, setShowAdModal] = useState<boolean>(false);
   const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const [isCleared, setIsCleared] = useState<boolean>(false);
+
+  // Daily Streak target
+  const dailyStreakCount = calculateNextDailyStreak(stats?.lastDailyDate || null, stats?.streak || 1);
+  const dailyMultiplier = getDailyStreakMultiplier(dailyStreakCount);
 
   // Time limit timer (15s per question)
   const [timeLeft, setTimeLeft] = useState<number>(15);
@@ -172,8 +185,8 @@ export function QuizSession({
   const calculateFinalReward = () => {
     const isPerfect = mistakes === 0;
     if (mode === 'daily') {
-      const base = 15;
-      return isPerfect ? base * 2 : base;
+      const dailyCalc = calculateDailyReward(dailyStreakCount, isPerfect);
+      return dailyCalc.totalReward;
     }
 
     const base = 5;
@@ -201,6 +214,7 @@ export function QuizSession({
     const finalReward = calculateFinalReward();
     const activeMods = modifiers.filter((m) => m.active);
     const totalBonusPercent = activeMods.reduce((acc, m) => acc + m.bonusPercent, 0);
+    const dailyBreakdown = mode === 'daily' ? calculateDailyReward(dailyStreakCount, isPerfect) : null;
 
     return (
       <div className="w-full max-w-md mx-auto px-4 py-6">
@@ -209,17 +223,69 @@ export function QuizSession({
           className="duo-card p-6 sm:p-8 text-center bg-white"
         >
           <div className="flex justify-center mb-4">
-            <div className="w-20 h-20 rounded-3xl bg-[#58CC02] border-b-4 border-[#58A700] flex items-center justify-center text-white shadow-md animate-bounce">
-              <Sparkles className="w-10 h-10" />
+            <div className={`w-20 h-20 rounded-3xl border-b-4 flex items-center justify-center text-white shadow-md animate-bounce ${
+              mode === 'daily' ? 'bg-[#FF9600] border-[#D97706]' : 'bg-[#58CC02] border-[#58A700]'
+            }`}>
+              {mode === 'daily' ? (
+                <Flame className="w-10 h-10 fill-white" />
+              ) : (
+                <Sparkles className="w-10 h-10" />
+              )}
             </div>
           </div>
 
           <h1 className="text-3xl font-black text-[#3C3C3C] tracking-tight mb-1">
-            レッスン完了！
+            {mode === 'daily' ? 'デイリーセット達成！' : 'レッスン完了！'}
           </h1>
-          <p className="text-sm font-bold text-[#AFAFAF] mb-6">
-            {mode === 'daily' ? 'デイリーセットを全問クリア！' : '素晴らしい成果です！'}
+          <p className="text-sm font-bold text-[#AFAFAF] mb-5">
+            {mode === 'daily' 
+              ? `🔥 連勝記録更新！${dailyStreakCount}日連続クリア！` 
+              : '素晴らしい成果です！'}
           </p>
+
+          {/* Daily Streak Multiplier Banner for Daily Mode */}
+          {mode === 'daily' && (
+            <div className="mb-5 p-4 rounded-2xl bg-gradient-to-r from-[#FFF5EB] to-[#FEF3C7] border-2 border-[#FED7AA] text-left shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-5 h-5 text-[#EA580C] fill-[#EA580C]" />
+                  <span className="text-sm font-black text-[#9A3412]">
+                    連勝記録: {dailyStreakCount}日連続
+                  </span>
+                </div>
+                <span className="text-xs font-black bg-[#EA580C] text-white px-2.5 py-0.5 rounded-full shadow-2xs font-mono">
+                  報酬 {dailyMultiplier}倍！
+                </span>
+              </div>
+
+              {/* Multiplier Step Gauge (1x, 2x, 3x, 4x, 5x MAX) */}
+              <div className="grid grid-cols-5 gap-1.5 mt-2.5">
+                {[1, 2, 3, 4, 5].map((step) => {
+                  const isReached = dailyStreakCount >= step;
+                  const isCurrent = dailyStreakCount === step || (step === 5 && dailyStreakCount >= 5);
+                  return (
+                    <div 
+                      key={step}
+                      className={`p-1.5 rounded-xl border text-center transition-all ${
+                        isCurrent
+                          ? 'bg-[#EA580C] text-white border-[#C2410C] font-black shadow-xs scale-105'
+                          : isReached
+                          ? 'bg-[#FED7AA] text-[#9A3412] border-[#FDBA74] font-bold'
+                          : 'bg-white/60 text-[#AFAFAF] border-[#E5E5E5] font-semibold'
+                      }`}
+                    >
+                      <div className="text-[10px] leading-tight">
+                        {step === 5 ? '5日〜' : `${step}日`}
+                      </div>
+                      <div className="text-xs font-black font-mono">
+                        {step === 5 ? '5.0x' : `${step}.0x`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Reward Highlight Badge */}
           <div className="p-5 bg-[#F7FFF0] border-2 border-[#58CC02] rounded-3xl mb-6 shadow-xs">
@@ -243,6 +309,17 @@ export function QuizSession({
               </span>
             </div>
 
+            {/* Daily Streak Bonus */}
+            {mode === 'daily' && dailyBreakdown && dailyBreakdown.streakBonus > 0 && (
+              <div className="flex justify-between text-[#EA580C]">
+                <span className="flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 fill-[#EA580C]" />
+                  <span>連勝倍率ボーナス ({dailyBreakdown.multiplier}倍)</span>
+                </span>
+                <span className="font-black">+{dailyBreakdown.streakBonus} ⚡️</span>
+              </div>
+            )}
+
             {mode === 'practice' && activeMods.length > 0 && (
               <div className="flex justify-between text-[#1CB0F6]">
                 <span>モディファイアボーナス ({activeMods.length}個)</span>
@@ -253,7 +330,11 @@ export function QuizSession({
             {isPerfect && (
               <div className="flex justify-between text-[#FFC800]">
                 <span>🌟 パーフェクトボーナス (ミス0回)</span>
-                <span className="font-black">+100%</span>
+                <span className="font-black">
+                  {mode === 'daily' && dailyBreakdown
+                    ? `+${dailyBreakdown.perfectBonus} ⚡️ (×2倍)`
+                    : '+100%'}
+                </span>
               </div>
             )}
 
@@ -273,9 +354,10 @@ export function QuizSession({
                 reward: finalReward,
                 perfect: isPerfect,
                 mistakes,
+                streak: mode === 'daily' ? dailyStreakCount : undefined,
               });
             }}
-            className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-lg font-black flex items-center justify-center gap-2"
+            className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-lg font-black flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>次へ進む</span>
             <ArrowRight className="w-5 h-5" />

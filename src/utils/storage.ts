@@ -69,6 +69,78 @@ export function getCurrentDailyCycleKey(now: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+// Get the previous (yesterday's) daily cycle identifier based on 9:00 AM cutoff.
+export function getYesterdayDailyCycleKey(now: Date = new Date()): string {
+  const cycleDate = new Date(now.getTime());
+  if (cycleDate.getHours() < 9) {
+    cycleDate.setDate(cycleDate.getDate() - 2);
+  } else {
+    cycleDate.setDate(cycleDate.getDate() - 1);
+  }
+  const year = cycleDate.getFullYear();
+  const month = String(cycleDate.getMonth() + 1).padStart(2, '0');
+  const day = String(cycleDate.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// 連勝倍率 (1連勝: 1.0倍, 2連勝: 2.0倍, 3連勝: 3.0倍, 4連勝: 4.0倍, 5連勝以上: 最大5.0倍)
+export function getDailyStreakMultiplier(streak: number): number {
+  if (streak <= 1) return 1.0;
+  if (streak === 2) return 2.0;
+  if (streak === 3) return 3.0;
+  if (streak === 4) return 4.0;
+  return 5.0; // 最大5倍
+}
+
+// 現在有効な連勝数（昨日または今日やっていれば維持、間が空いたら0）
+export function getEffectiveDailyStreak(lastDailyDate: string | null, currentStreak: number): number {
+  if (!lastDailyDate) return 0;
+  const todayKey = getCurrentDailyCycleKey();
+  const yesterdayKey = getYesterdayDailyCycleKey();
+
+  if (lastDailyDate === todayKey || lastDailyDate === yesterdayKey) {
+    return Math.max(1, currentStreak);
+  }
+  return 0; // 途切れた
+}
+
+// 次回デイリーセットクリア時の連勝数
+export function calculateNextDailyStreak(lastDailyDate: string | null, currentStreak: number): number {
+  const todayKey = getCurrentDailyCycleKey();
+  if (lastDailyDate === todayKey) {
+    return Math.max(1, currentStreak);
+  }
+  const yesterdayKey = getYesterdayDailyCycleKey();
+  if (lastDailyDate === yesterdayKey) {
+    return Math.max(1, currentStreak) + 1;
+  }
+  return 1; // 途切れていた場合は1連勝目からスタート
+}
+
+// デイリーセット報酬計算 (基本15⚡️ × 連勝倍率(最大5倍) × パーフェクト2倍)
+export function calculateDailyReward(streak: number, isPerfect: boolean = false): {
+  baseReward: number;
+  multiplier: number;
+  streakBonus: number;
+  perfectBonus: number;
+  totalReward: number;
+} {
+  const baseReward = 15;
+  const multiplier = getDailyStreakMultiplier(streak);
+  const withMultiplier = Math.round(baseReward * multiplier);
+  const streakBonus = withMultiplier - baseReward;
+  const totalReward = isPerfect ? withMultiplier * 2 : withMultiplier;
+  const perfectBonus = isPerfect ? withMultiplier : 0;
+
+  return {
+    baseReward,
+    multiplier,
+    streakBonus,
+    perfectBonus,
+    totalReward,
+  };
+}
+
 // Check if user has already completed the daily set for the current 9:00 AM cycle
 export function isDailyCompletedToday(lastDailyDate: string | null): boolean {
   if (!lastDailyDate) return false;
