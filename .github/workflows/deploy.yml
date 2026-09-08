@@ -27,11 +27,11 @@ jobs:
           node-version: 20
 
       - name: Install Dependencies
-        run: npm install
+        run: npm install --include=dev
 
       - name: Build Vite App
         run: |
-          npx vite build
+          npx vite build --base=/sudoku/
           touch ./dist/.nojekyll
           cp ./dist/index.html ./dist/404.html
 

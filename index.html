@@ -2,6 +2,12 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Ensure trailing slash for GitHub Pages repo subpath
+      if (window.location.pathname.endsWith('/sudoku')) {
+        window.location.replace(window.location.pathname + '/' + window.location.search + window.location.hash);
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='5' y='5' width='90' height='90' rx='28' fill='%2358CC02'/><text x='50%' y='55%' dominant-baseline='central' text-anchor='middle' font-size='50'>🐟</text></svg>" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>うおwりんご (Uowlingo) - 英語学習</title>

@@ -94,11 +94,16 @@ class RealtimePresenceAndRankedService {
   }
 
   private async checkServerAvailability() {
-    // If hosting on static host (like github.io), don't attempt server API calls that yield 404
-    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
-      this.isServerAvailable = false;
-      this.notifyStatus(true, 'Local Offline & Peer Network');
-      return;
+    // Only attempt server backend if running on Cloud Run or local dev server
+    if (typeof window !== 'undefined') {
+      const isBackendHost = window.location.hostname === 'localhost' || 
+                            window.location.hostname === '127.0.0.1' || 
+                            window.location.hostname.includes('run.app');
+      if (!isBackendHost) {
+        this.isServerAvailable = false;
+        this.notifyStatus(true, 'Local Offline & Peer Network');
+        return;
+      }
     }
 
     try {
