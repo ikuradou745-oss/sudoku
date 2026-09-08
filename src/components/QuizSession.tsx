@@ -19,6 +19,8 @@ import {
 } from '../utils/storage';
 import { audio } from '../utils/audio';
 import { AdModal } from './AdModal';
+import { GoodsHUD } from './GoodsHUD';
+import { PencilHintCard, MarkerOverlay, RulerGuideCard } from './GoodsVisualEffects';
 
 interface QuizSessionProps {
   mode: 'practice' | 'daily';
@@ -68,7 +70,25 @@ export function QuizSession({
   const [isAnswerChecked, setIsAnswerChecked] = useState<boolean>(false);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
 
+  // Goods Equipment State
+  const equippedMain = stats?.equippedMainGoods || 'pencil';
+  const equippedSub = stats?.equippedSubGoods || 'eraser';
+  const [mainCharge, setMainCharge] = useState<number>(0);
+  const [subCharge, setSubCharge] = useState<number>(0);
+  const [markerUsed, setMarkerUsed] = useState<boolean>(false);
+  const [showMarkerOverlay, setShowMarkerOverlay] = useState<boolean>(false);
+  const [pencilActive, setPencilActive] = useState<boolean>(false);
+  const [eraserActive, setEraserActive] = useState<boolean>(false);
+  const [hiddenChoices, setHiddenChoices] = useState<string[]>([]);
+  // Random question index for ruler (e.g. index 1 or 2)
+  const [rulerTargetIndex] = useState<number>(() => {
+    if (questions.length <= 1) return 0;
+    return Math.floor(Math.random() * (questions.length - 1)) + 1;
+  });
+  const [rulerTriggered, setRulerTriggered] = useState<boolean>(false);
+
   const currentQ = questions[currentIndex];
+  const isRulerActiveCurrentQ = equippedSub === 'ruler' && currentIndex === rulerTargetIndex;
 
   // Initialize question state
   useEffect(() => {
@@ -78,6 +98,13 @@ export function QuizSession({
     setIsAnswerChecked(false);
     setIsCorrect(null);
     setTimeLeft(15);
+    setPencilActive(false);
+    setEraserActive(false);
+    setHiddenChoices([]);
+
+    if (currentIndex === rulerTargetIndex) {
+      setRulerTriggered(true);
+    }
 
     if (currentQ.type === 'order' && currentQ.wordOptions) {
       const shuffled = [...currentQ.wordOptions].sort(() => Math.random() - 0.5);
@@ -87,7 +114,54 @@ export function QuizSession({
       setAvailableWords([]);
       setSelectedWords([]);
     }
-  }, [currentIndex, currentQ]);
+  }, [currentIndex, currentQ, rulerTargetIndex]);
+
+  // Activate Pencil Skill (Hint)
+  const handleActivatePencil = () => {
+    audio.playTap();
+    setPencilActive(true);
+    setMainCharge(0);
+  };
+
+  // Activate Eraser Skill (50:50 or Auto Fill Half)
+  const handleActivateEraser = () => {
+    if (!currentQ || eraserActive) return;
+    audio.playTap();
+    setEraserActive(true);
+    setSubCharge(0);
+
+    if (currentQ.type === 'order') {
+      const correctWords = currentQ.english.split(' ');
+      const halfCount = Math.max(1, Math.floor(correctWords.length / 2));
+      const autoWords = correctWords.slice(0, halfCount);
+      setSelectedWords(autoWords);
+
+      // Remaining options in pool
+      let tempAvail = [...(currentQ.wordOptions || [])];
+      for (const w of autoWords) {
+        const foundIdx = tempAvail.indexOf(w);
+        if (foundIdx !== -1) {
+          tempAvail.splice(foundIdx, 1);
+        }
+      }
+      setAvailableWords(tempAvail);
+    } else if (currentQ.choices) {
+      const wrong = currentQ.choices.filter((c) => c !== currentQ.correctAnswer);
+      const hideCount = Math.max(1, Math.floor(wrong.length / 2));
+      setHiddenChoices(wrong.slice(0, hideCount));
+    }
+  };
+
+  // Dismiss Marker Overlay and reset attempt
+  const handleDismissMarkerOverlay = () => {
+    setShowMarkerOverlay(false);
+    setSelectedAnswer(null);
+    if (currentQ?.type === 'order' && currentQ.wordOptions) {
+      const shuffled = [...currentQ.wordOptions].sort(() => Math.random() - 0.5);
+      setAvailableWords(shuffled);
+      setSelectedWords([]);
+    }
+  };
 
   // Handle wrong answer trigger
   const handleMistake = useCallback(() => {
@@ -161,10 +235,27 @@ export function QuizSession({
       audio.playCorrect();
       setIsCorrect(true);
       setIsAnswerChecked(true);
+
+      // Charge equipped goods by 25% per correct answer
+      if (equippedMain === 'pencil') {
+        setMainCharge((prev) => Math.min(100, prev + 25));
+      }
+      if (equippedSub === 'eraser') {
+        setSubCharge((prev) => Math.min(100, prev + 25));
+      }
+
       if (currentQ.type !== 'order' && (currentQ.audioPrompt || currentQ.english)) {
         audio.speakEnglish(currentQ.audioPrompt || currentQ.english);
       }
     } else {
+      // Check Marker Pen ability: Invalidate miss once and retry
+      if (equippedMain === 'marker' && !markerUsed) {
+        audio.playTap();
+        setMarkerUsed(true);
+        setShowMarkerOverlay(true);
+        return;
+      }
+
       handleMistake();
     }
   };
@@ -431,8 +522,13 @@ export function QuizSession({
   // Active Quiz View
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-4">
+      {/* Marker Pen Resurrect Overlay */}
+      {showMarkerOverlay && (
+        <MarkerOverlay onDismiss={handleDismissMarkerOverlay} />
+      )}
+
       {/* Top Session Bar: Progress + Timer + Lives */}
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex items-center gap-3 mb-3">
         {/* Close Button */}
         <button
           onClick={() => {
@@ -477,6 +573,23 @@ export function QuizSession({
         </div>
       </div>
 
+      {/* Equipped Goods In-Game Status Bar */}
+      <div className="mb-4">
+        <GoodsHUD
+          equippedMain={equippedMain}
+          equippedSub={equippedSub}
+          mainCharge={mainCharge}
+          subCharge={subCharge}
+          markerUsed={markerUsed}
+          rulerTriggered={rulerTriggered}
+          rulerActiveOnQuestion={isRulerActiveCurrentQ}
+          pencilActive={pencilActive}
+          eraserActive={eraserActive}
+          onActivatePencil={handleActivatePencil}
+          onActivateEraser={handleActivateEraser}
+        />
+      </div>
+
       {/* Main Question Card */}
       <div 
         id="question-card"
@@ -507,6 +620,14 @@ export function QuizSession({
             </button>
           )}
         </div>
+
+        {/* Goods Visual Ability Triggers (Pencil & Ruler) */}
+        {pencilActive && (
+          <PencilHintCard question={currentQ} />
+        )}
+        {isRulerActiveCurrentQ && (
+          <RulerGuideCard question={currentQ} />
+        )}
 
         {/* Japanese Prompt */}
         <h2 className="text-xl sm:text-2xl font-black text-[#3C3C3C] mb-4 whitespace-pre-line leading-snug">
@@ -564,6 +685,22 @@ export function QuizSession({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {currentQ.choices.map((choice, idx) => {
               const isSelected = selectedAnswer === choice;
+              const isHidden = hiddenChoices.includes(choice);
+
+              if (isHidden) {
+                return (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-2xl border-2 border-dashed border-[#E5E5E5] bg-[#F7F7F7] flex items-center justify-between text-sm font-bold text-[#AFAFAF] select-none opacity-60"
+                  >
+                    <span className="line-through">{choice}</span>
+                    <span className="text-[10px] bg-[#E5E5E5] text-[#777777] px-2 py-0.5 rounded-md font-black">
+                      消しゴムで消去
+                    </span>
+                  </div>
+                );
+              }
+
               let choiceStyle = 'duo-btn-gray text-[#3C3C3C]';
 
               if (isAnswerChecked) {

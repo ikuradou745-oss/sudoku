@@ -30,6 +30,7 @@ interface HomeScreenProps {
   onStartDaily: () => void;
   onStartRanked: () => void;
   onOpenCommunity: () => void;
+  onOpenGoods: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
   soundEnabled: boolean;
@@ -41,6 +42,7 @@ export function HomeScreen({
   onStartDaily,
   onStartRanked,
   onOpenCommunity,
+  onOpenGoods,
   onToggleSound,
   onOpenProfile,
   soundEnabled,
@@ -324,6 +326,46 @@ export function HomeScreen({
             <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full flex items-center gap-1">
               <span>{userRank.icon}</span>
               <span>{userRank.name}</span>
+            </span>
+            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
+          </div>
+        </button>
+
+        {/* 4. グッズ (えんぴつ・マーカー・消しゴム・ものさし) */}
+        <button
+          id="open-goods-btn"
+          onClick={() => {
+            audio.playTap();
+            onOpenGoods();
+          }}
+          className="duo-btn duo-btn-purple w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 text-left">
+            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 text-2xl">
+              🎒
+            </div>
+            <div>
+              <div className="text-lg font-black text-white flex items-center gap-2">
+                <span>グッズ</span>
+                <span className="text-[10px] font-black bg-white/30 text-white px-2 py-0.5 rounded-md">
+                  メイン & サブ装備
+                </span>
+              </div>
+              <div className="text-xs font-bold text-white/90 flex items-center gap-2">
+                <span>
+                  装備中: ✏️{stats.equippedMainGoods === 'marker' ? 'マーカーペン' : 'えんぴつ'}
+                </span>
+                <span>/</span>
+                <span>
+                  🧹{stats.equippedSubGoods === 'ruler' ? 'ものさし' : '消しゴム'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
+              能力設定・ショップ
             </span>
             <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>

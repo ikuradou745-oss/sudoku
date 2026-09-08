@@ -31,6 +31,7 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   const [selectedMode, setSelectedMode] = useState<'1vs1' | '2vs2'>('1vs1');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [queueTimer, setQueueTimer] = useState<number>(0);
+  const [botAllowed, setBotAllowed] = useState<boolean>(true);
   const [autoBotMatch, setAutoBotMatch] = useState<boolean>(true);
   const [showRules, setShowRules] = useState<boolean>(false);
 
@@ -89,8 +90,8 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
       interval = setInterval(() => {
         setQueueTimer((prev) => {
           const next = prev + 1;
-          if (autoBotMatch && next >= 5) {
-            // Trigger bot match if no online player matched after 5s
+          if (botAllowed && autoBotMatch && next >= 5) {
+            // Trigger bot match if no online player matched after 5s and bot allowed
             setTimeout(() => {
               handleLaunchBotMatch();
             }, 50);
@@ -102,7 +103,7 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
       setQueueTimer(0);
     }
     return () => clearInterval(interval);
-  }, [isSearching, autoBotMatch]);
+  }, [isSearching, autoBotMatch, botAllowed]);
 
   const handleLaunchBotMatch = () => {
     audio.playTap();
@@ -390,33 +391,45 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               </div>
             </div>
 
-            {/* Auto Bot Match Toggle & Instant Bot Play */}
-            <div className="p-3.5 rounded-2xl bg-[#FFFBEB] border-2 border-[#FDE68A] text-left max-w-sm mx-auto space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={autoBotMatch}
-                  onChange={(e) => setAutoBotMatch(e.target.checked)}
-                  className="w-4 h-4 rounded text-[#D97706] focus:ring-[#D97706] cursor-pointer"
-                />
-                <span className="text-xs font-black text-[#92400E]">
-                  相手が見つからない場合、Botと対戦する（約5秒）
-                </span>
-              </label>
-              <div className="text-[11px] font-bold text-[#B45309]">
-                {autoBotMatch
-                  ? `残り ${Math.max(0, 5 - queueTimer)}秒 でBotマッチングを開始します`
-                  : 'オンラインプレイヤーのみを待機します'}
+            {/* Auto Bot Match Toggle & Instant Bot Play (Only if botAllowed is true) */}
+            {botAllowed ? (
+              <div className="p-3.5 rounded-2xl bg-[#FFFBEB] border-2 border-[#FDE68A] text-left max-w-sm mx-auto space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoBotMatch}
+                    onChange={(e) => setAutoBotMatch(e.target.checked)}
+                    className="w-4 h-4 rounded text-[#D97706] focus:ring-[#D97706] cursor-pointer"
+                  />
+                  <span className="text-xs font-black text-[#92400E]">
+                    相手が見つからない場合、Botと対戦する（約5秒）
+                  </span>
+                </label>
+                <div className="text-[11px] font-bold text-[#B45309]">
+                  {autoBotMatch
+                    ? `残り ${Math.max(0, 5 - queueTimer)}秒 でBotマッチングを開始します`
+                    : 'オンラインプレイヤーのみを待機します'}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLaunchBotMatch}
+                  className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xs cursor-pointer hover:opacity-90 transition-opacity"
+                >
+                  <Bot className="w-4 h-4" />
+                  <span>今すぐBotと対戦を開始する</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleLaunchBotMatch}
-                className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xs cursor-pointer hover:opacity-90 transition-opacity"
-              >
-                <Bot className="w-4 h-4" />
-                <span>今すぐBotと対戦を開始する</span>
-              </button>
-            </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-[#EFF6FF] border-2 border-[#BFDBFE] text-left max-w-sm mx-auto space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-black text-[#1E40AF]">
+                  <Users className="w-4 h-4 text-[#2563EB]" />
+                  <span>ボットなし (完全対人戦) で待機中</span>
+                </div>
+                <p className="text-[11px] font-bold text-[#3B82F6]">
+                  Botは一切乱入しません。本物のプレイヤーがマッチするまで待機します。（別タブを開いてマッチングをテストできます）
+                </p>
+              </div>
+            )}
 
             {/* Quick Dual-Tab Test Button & Cancel Button */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-sm mx-auto">
@@ -797,26 +810,70 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               )}
             </div>
 
-            {/* Auto Bot Match setting toggle in Lobby */}
-            <div className="p-3 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5] flex items-center justify-between">
-              <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={autoBotMatch}
-                  onChange={(e) => setAutoBotMatch(e.target.checked)}
-                  className="w-4 h-4 rounded text-[#1CB0F6] focus:ring-[#1CB0F6] cursor-pointer"
-                />
-                <div className="text-left">
-                  <div className="text-xs font-black text-[#3C3C3C]">
-                    マッチ待機時、Botとの自動マッチを許可する
-                  </div>
-                  <div className="text-[10px] font-bold text-[#777777]">
-                    他プレイヤーがいない場合、5秒後に即座に対戦開始します
-                  </div>
-                </div>
-              </label>
-              <Bot className="w-5 h-5 text-[#777777] shrink-0" />
+            {/* Bot Match Mode Selector: あり vs なし */}
+            <div className="space-y-1.5">
+              <div className="text-xs font-black text-[#3C3C3C] flex items-center justify-between">
+                <span>対戦相手の設定 (Botあり / なし)</span>
+                <span className="text-[10px] text-[#777777] font-bold">
+                  {botAllowed ? '🤖 Bot参戦OK (マッチ待ち時間なし)' : '👥 完全対人戦 (Bot不使用)'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.playTap();
+                    setBotAllowed(true);
+                  }}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    botAllowed
+                      ? 'bg-white text-[#1CB0F6] border-2 border-[#1CB0F6] shadow-xs'
+                      : 'text-[#777777] hover:text-[#3C3C3C] border-2 border-transparent'
+                  }`}
+                >
+                  <Bot className="w-4 h-4" />
+                  <span>ボットあり (推奨)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.playTap();
+                    setBotAllowed(false);
+                  }}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    !botAllowed
+                      ? 'bg-white text-[#FF4B4B] border-2 border-[#FF4B4B] shadow-xs'
+                      : 'text-[#777777] hover:text-[#3C3C3C] border-2 border-transparent'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>ボットなし (完全対人)</span>
+                </button>
+              </div>
             </div>
+
+            {/* If Bot allowed, show auto-match detail */}
+            {botAllowed && (
+              <div className="p-3 rounded-2xl bg-[#FFFBEB] border border-[#FDE68A] flex items-center justify-between text-left">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoBotMatch}
+                    onChange={(e) => setAutoBotMatch(e.target.checked)}
+                    className="w-4 h-4 rounded text-[#D97706] focus:ring-[#D97706] cursor-pointer"
+                  />
+                  <div>
+                    <div className="text-xs font-black text-[#92400E]">
+                      マッチ待機時、5秒後にBotと自動対戦を開始
+                    </div>
+                    <div className="text-[10px] font-bold text-[#B45309]">
+                      チェックを外すと「今すぐBotと対戦」ボタンを押すまで待機します
+                    </div>
+                  </div>
+                </label>
+                <Bot className="w-5 h-5 text-[#D97706] shrink-0" />
+              </div>
+            )}
 
             {/* Buttons: Online Queue & Instant Bot Match */}
             <div className="space-y-2 pt-1">
@@ -826,18 +883,22 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
                 className="duo-btn duo-btn-red w-full py-4 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
               >
                 <Swords className="w-5 h-5 text-white" />
-                <span>{selectedMode} オンライン対戦相手を探す</span>
+                <span>
+                  {selectedMode} {botAllowed ? 'ランクマッチに挑む (Botあり)' : '完全対人マッチに挑む (Botなし)'}
+                </span>
                 <ArrowRight className="w-5 h-5 text-white" />
               </button>
 
-              <button
-                type="button"
-                onClick={handleLaunchBotMatch}
-                className="duo-btn duo-btn-gray w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-              >
-                <Bot className="w-4 h-4 text-[#777777]" />
-                <span>Botと即座に対戦を開始する（練習/レート反映）</span>
-              </button>
+              {botAllowed && (
+                <button
+                  type="button"
+                  onClick={handleLaunchBotMatch}
+                  className="duo-btn duo-btn-gray w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <Bot className="w-4 h-4 text-[#777777]" />
+                  <span>Botと即座に対戦を開始する（練習/レート反映）</span>
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -30,6 +30,20 @@ export interface Modifier {
 
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
 
+export type MainGoodsId = 'pencil' | 'marker';
+export type SubGoodsId = 'eraser' | 'ruler';
+
+export interface GoodsItem {
+  id: MainGoodsId | SubGoodsId;
+  type: 'main' | 'sub';
+  name: string;
+  icon: string;
+  price: number; // 0 for initial, 15000 for purchasable
+  chargePercentPerCorrect?: number; // e.g. 25
+  description: string;
+  abilityDetail: string;
+}
+
 export interface UserStats {
   userId?: string;
   energy: number; // ⚡️
@@ -47,6 +61,10 @@ export interface UserStats {
   rankedWins?: number;
   rankedLosses?: number;
   lastActiveTime?: number;
+  // Goods Equipment System
+  equippedMainGoods?: MainGoodsId;
+  equippedSubGoods?: SubGoodsId;
+  unlockedGoods?: string[];
 }
 
 export interface OnlineUserPresence {

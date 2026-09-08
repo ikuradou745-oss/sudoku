@@ -6,7 +6,8 @@ import { CommunityModal } from './components/CommunityModal';
 import { RankedLobbyModal } from './components/RankedLobbyModal';
 import { RankedQuizSession } from './components/RankedQuizSession';
 import { QuizSession } from './components/QuizSession';
-import { UserStats, Modifier, Question, RankedMatchSession } from './types';
+import { GoodsModal } from './components/GoodsModal';
+import { UserStats, Modifier, Question, RankedMatchSession, MainGoodsId, SubGoodsId, GoodsItem } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
   getStoredUserStats, 
@@ -29,6 +30,7 @@ export function App() {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showCommunityModal, setShowCommunityModal] = useState<boolean>(false);
   const [showRankedLobbyModal, setShowRankedLobbyModal] = useState<boolean>(false);
+  const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
 
   // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
@@ -180,6 +182,39 @@ export function App() {
     setShowProfileModal(false);
   };
 
+  // Goods Equipment & Purchase
+  const handleEquipGoods = (type: 'main' | 'sub', id: MainGoodsId | SubGoodsId) => {
+    updateStats((prev) => {
+      if (type === 'main') {
+        return { ...prev, equippedMainGoods: id as MainGoodsId };
+      }
+      return { ...prev, equippedSubGoods: id as SubGoodsId };
+    });
+  };
+
+  const handleBuyGoods = (goods: GoodsItem) => {
+    updateStats((prev) => {
+      if (prev.energy < goods.price) return prev;
+      const nextUnlocked = Array.from(new Set([...(prev.unlockedGoods || ['pencil', 'eraser']), goods.id]));
+      const nextEnergy = prev.energy - goods.price;
+      
+      if (goods.type === 'main') {
+        return {
+          ...prev,
+          energy: nextEnergy,
+          unlockedGoods: nextUnlocked,
+          equippedMainGoods: goods.id as MainGoodsId,
+        };
+      }
+      return {
+        ...prev,
+        energy: nextEnergy,
+        unlockedGoods: nextUnlocked,
+        equippedSubGoods: goods.id as SubGoodsId,
+      };
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col justify-between selection:bg-[#58CC02] selection:text-white">
       {/* Main View Area */}
@@ -191,6 +226,7 @@ export function App() {
             onStartDaily={handleStartDaily}
             onStartRanked={() => setShowRankedLobbyModal(true)}
             onOpenCommunity={() => setShowCommunityModal(true)}
+            onOpenGoods={() => setShowGoodsModal(true)}
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             soundEnabled={soundEnabled}
@@ -251,6 +287,16 @@ export function App() {
             stats={stats}
             onStartMatch={handleStartRankedMatch}
             onClose={() => setShowRankedLobbyModal(false)}
+          />
+        )}
+
+        {/* 🎒 Goods Equipment & Shop Modal */}
+        {showGoodsModal && (
+          <GoodsModal
+            stats={stats}
+            onEquipGoods={handleEquipGoods}
+            onBuyGoods={handleBuyGoods}
+            onClose={() => setShowGoodsModal(false)}
           />
         )}
       </main>
