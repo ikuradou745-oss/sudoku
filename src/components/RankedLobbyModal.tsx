@@ -13,9 +13,10 @@ import {
   LogOut,
   ChevronDown,
   ChevronUp,
-  Info
+  Info,
+  Bot
 } from 'lucide-react';
-import { UserStats, RankedMatchSession } from '../types';
+import { UserStats, RankedMatchSession, RankedMatchPlayer } from '../types';
 import { RANK_TIERS, getRankInfo } from '../utils/rank';
 import { realtimePresence, PartyInfo } from '../utils/multiplayer';
 import { audio } from '../utils/audio';
@@ -30,6 +31,7 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   const [selectedMode, setSelectedMode] = useState<'1vs1' | '2vs2'>('1vs1');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [queueTimer, setQueueTimer] = useState<number>(0);
+  const [autoBotMatch, setAutoBotMatch] = useState<boolean>(true);
   const [showRules, setShowRules] = useState<boolean>(false);
 
   // Matchmaking & Room Code State
@@ -80,18 +82,147 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
     };
   }, [stats.userId, isSearching]);
 
-  // Queue timer ticker
+  // Queue timer ticker with auto-bot trigger
   useEffect(() => {
     let interval: any = null;
     if (isSearching) {
       interval = setInterval(() => {
-        setQueueTimer((prev) => prev + 1);
+        setQueueTimer((prev) => {
+          const next = prev + 1;
+          if (autoBotMatch && next >= 5) {
+            // Trigger bot match if no online player matched after 5s
+            setTimeout(() => {
+              handleLaunchBotMatch();
+            }, 50);
+          }
+          return next;
+        });
       }, 1000);
     } else {
       setQueueTimer(0);
     }
     return () => clearInterval(interval);
-  }, [isSearching]);
+  }, [isSearching, autoBotMatch]);
+
+  const handleLaunchBotMatch = () => {
+    audio.playTap();
+    setIsSearching(false);
+    realtimePresence.cancelQueue();
+
+    const botNames = ['サクラ', 'ケンタ', 'ハヤト', 'ユウキ', 'エマ', 'タクミ', 'アスカ', 'リン'];
+    const botName = botNames[Math.floor(Math.random() * botNames.length)] + ' (Bot)';
+    const ratingVariance = (Math.floor(Math.random() * 5) - 2) * 10;
+    const botRating = Math.max(0, (stats.rating || 100) + ratingVariance);
+    const botTier = getRankInfo(botRating).tier;
+
+    let players: RankedMatchPlayer[] = [];
+    if (selectedMode === '1vs1') {
+      players = [
+        {
+          id: stats.userId || 'me',
+          name: stats.userName || '会員',
+          avatarUrl: stats.avatarUrl,
+          rating: stats.rating || 0,
+          rankTier: stats.rankTier || 'bronze',
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          isBot: false,
+        },
+        {
+          id: `bot_player_${Date.now()}`,
+          name: botName,
+          avatarUrl: null,
+          rating: botRating,
+          rankTier: botTier,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          isBot: true,
+        },
+      ];
+    } else {
+      players = [
+        {
+          id: stats.userId || 'me',
+          name: stats.userName || '会員',
+          avatarUrl: stats.avatarUrl,
+          rating: stats.rating || 0,
+          rankTier: stats.rankTier || 'bronze',
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          team: 'red',
+          isBot: false,
+        },
+        {
+          id: `bot_tm_${Date.now()}`,
+          name: 'アオイ (味方Bot)',
+          avatarUrl: null,
+          rating: botRating,
+          rankTier: botTier,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          team: 'red',
+          isBot: true,
+        },
+        {
+          id: `bot_en1_${Date.now()}`,
+          name: 'リョウ (敵Bot)',
+          avatarUrl: null,
+          rating: botRating,
+          rankTier: botTier,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          team: 'blue',
+          isBot: true,
+        },
+        {
+          id: `bot_en2_${Date.now()}`,
+          name: 'ナナミ (敵Bot)',
+          avatarUrl: null,
+          rating: botRating,
+          rankTier: botTier,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+          team: 'blue',
+          isBot: true,
+        },
+      ];
+    }
+
+    const botSession: RankedMatchSession = {
+      matchId: `bot_match_${Date.now()}`,
+      mode: selectedMode,
+      status: 'countdown',
+      seed: Math.floor(Math.random() * 100000),
+      createdAt: Date.now(),
+      players,
+    };
+
+    onStartMatch(botSession, false);
+  };
 
   const handleStartQueue = async () => {
     audio.playTap();
@@ -257,6 +388,34 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               <div className="text-[#FF9600]">
                 オンライン: {onlineCount}人
               </div>
+            </div>
+
+            {/* Auto Bot Match Toggle & Instant Bot Play */}
+            <div className="p-3.5 rounded-2xl bg-[#FFFBEB] border-2 border-[#FDE68A] text-left max-w-sm mx-auto space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoBotMatch}
+                  onChange={(e) => setAutoBotMatch(e.target.checked)}
+                  className="w-4 h-4 rounded text-[#D97706] focus:ring-[#D97706] cursor-pointer"
+                />
+                <span className="text-xs font-black text-[#92400E]">
+                  相手が見つからない場合、Botと対戦する（約5秒）
+                </span>
+              </label>
+              <div className="text-[11px] font-bold text-[#B45309]">
+                {autoBotMatch
+                  ? `残り ${Math.max(0, 5 - queueTimer)}秒 でBotマッチングを開始します`
+                  : 'オンラインプレイヤーのみを待機します'}
+              </div>
+              <button
+                type="button"
+                onClick={handleLaunchBotMatch}
+                className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F59E0B] to-[#D97706] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-xs cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                <Bot className="w-4 h-4" />
+                <span>今すぐBotと対戦を開始する</span>
+              </button>
             </div>
 
             {/* Quick Dual-Tab Test Button & Cancel Button */}
@@ -638,16 +797,48 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               )}
             </div>
 
-            {/* Main Start Matchmaking Button */}
-            <button
-              id="start-ranked-matchmaking-btn"
-              onClick={handleStartQueue}
-              className="duo-btn duo-btn-red w-full py-4 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
-            >
-              <Swords className="w-5 h-5 text-white" />
-              <span>{selectedMode} ランクマッチに挑む</span>
-              <ArrowRight className="w-5 h-5 text-white" />
-            </button>
+            {/* Auto Bot Match setting toggle in Lobby */}
+            <div className="p-3 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5] flex items-center justify-between">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoBotMatch}
+                  onChange={(e) => setAutoBotMatch(e.target.checked)}
+                  className="w-4 h-4 rounded text-[#1CB0F6] focus:ring-[#1CB0F6] cursor-pointer"
+                />
+                <div className="text-left">
+                  <div className="text-xs font-black text-[#3C3C3C]">
+                    マッチ待機時、Botとの自動マッチを許可する
+                  </div>
+                  <div className="text-[10px] font-bold text-[#777777]">
+                    他プレイヤーがいない場合、5秒後に即座に対戦開始します
+                  </div>
+                </div>
+              </label>
+              <Bot className="w-5 h-5 text-[#777777] shrink-0" />
+            </div>
+
+            {/* Buttons: Online Queue & Instant Bot Match */}
+            <div className="space-y-2 pt-1">
+              <button
+                id="start-ranked-matchmaking-btn"
+                onClick={handleStartQueue}
+                className="duo-btn duo-btn-red w-full py-4 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <Swords className="w-5 h-5 text-white" />
+                <span>{selectedMode} オンライン対戦相手を探す</span>
+                <ArrowRight className="w-5 h-5 text-white" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLaunchBotMatch}
+                className="duo-btn duo-btn-gray w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+              >
+                <Bot className="w-4 h-4 text-[#777777]" />
+                <span>Botと即座に対戦を開始する（練習/レート反映）</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

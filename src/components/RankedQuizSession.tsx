@@ -146,8 +146,57 @@ export function RankedQuizSession({
     return () => unsubscribe();
   }, [session.matchId, stats.userId]);
 
-  // 4. Opponent Progress is purely driven by real network events (No Bots)
-  // Opponent progress updates arrive via RANKED_PROGRESS_UPDATE above
+  // 4. Simulate Bot Opponents during active gameplay if isBot === true
+  useEffect(() => {
+    if (matchState !== 'playing' || isFinished) return;
+    const botOpponents = players.filter((p) => p.isBot && !p.finished && !p.isKO);
+    if (botOpponents.length === 0) return;
+
+    const interval = setInterval(() => {
+      setPlayers((currentPlayers) => {
+        let hasChanges = false;
+        const nextPlayers = currentPlayers.map((p) => {
+          if (!p.isBot || p.finished || p.isKO) return p;
+
+          // Realistic bot progression every 2.2s with ~85% accuracy
+          if (Math.random() < 0.62) {
+            hasChanges = true;
+            const isCorrect = Math.random() < 0.85;
+            const newProgress = Math.min(10, p.progress + 1);
+            const newScore = isCorrect ? p.score + 100 : p.score;
+            const newMistakes = isCorrect ? p.mistakes : p.mistakes + 1;
+            const newLives = isCorrect ? p.lives : Math.max(0, p.lives - 1);
+            const isKO = newLives <= 0;
+            const finished = newProgress >= 10 || isKO;
+
+            return {
+              ...p,
+              progress: newProgress,
+              score: newScore,
+              mistakes: newMistakes,
+              lives: newLives,
+              isKO,
+              finished,
+            };
+          }
+          return p;
+        });
+
+        // Check if any opponent bot reached 10 questions first
+        const opps = nextPlayers.filter((p) => p.id !== stats.userId);
+        const botWon = opps.some((opp) => opp.finished && !opp.isKO);
+        if (botWon && !isFinished) {
+          setTimeout(() => {
+            handleMatchEnd(false);
+          }, 700);
+        }
+
+        return hasChanges ? nextPlayers : currentPlayers;
+      });
+    }, 2200);
+
+    return () => clearInterval(interval);
+  }, [matchState, isFinished, players, stats.userId]);
 
   // 5. Initialize Current Question Options
   useEffect(() => {
@@ -356,8 +405,10 @@ export function RankedQuizSession({
               <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl overflow-hidden border-4 border-[#FF4B4B] bg-white mx-auto shadow-lg flex items-center justify-center">
                 {opponents[0]?.avatarUrl ? (
                   <img src={opponents[0].avatarUrl} alt="Opponent" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
+                ) : opponents[0]?.isBot ? (
                   <Bot className="w-10 h-10 text-[#FF4B4B]" />
+                ) : (
+                  <User className="w-10 h-10 text-[#FF4B4B]" />
                 )}
               </div>
               <div className="font-black text-sm text-white truncate max-w-[100px]">
@@ -549,8 +600,10 @@ export function RankedQuizSession({
                 <div className="w-6 h-6 rounded-full overflow-hidden border bg-white flex items-center justify-center shrink-0">
                   {opp.avatarUrl ? (
                     <img src={opp.avatarUrl} alt={opp.name} className="w-full h-full object-cover" />
-                  ) : (
+                  ) : opp.isBot ? (
                     <Bot className="w-3.5 h-3.5 text-[#FF4B4B]" />
+                  ) : (
+                    <User className="w-3.5 h-3.5 text-[#FF4B4B]" />
                   )}
                 </div>
                 <span className="font-black text-[#3C3C3C] truncate w-20 text-[11px]">

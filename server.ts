@@ -101,7 +101,7 @@ function loadPresenceCache() {
       if (Array.isArray(list)) {
         const todayKey = getCurrentDailyCycleKey();
         list.forEach((u: PresenceUser) => {
-          if (u.id && u.name) {
+          if (u.id && u.name && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')) {
             // Keep users from today
             if (u.lastLoginDate === todayKey || Date.now() - u.lastActive < 86400000) {
               presenceMap.set(u.id, u);
@@ -116,7 +116,9 @@ function loadPresenceCache() {
 }
 function savePresenceCache() {
   try {
-    const list = Array.from(presenceMap.values());
+    const list = Array.from(presenceMap.values()).filter(
+      (u) => u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')
+    );
     fs.writeFileSync(PRESENCE_CACHE_FILE, JSON.stringify(list, null, 2), 'utf8');
   } catch {
     // Ignore
@@ -133,10 +135,12 @@ const sseClients = new Set<express.Response>();
 function getPresenceSnapshot() {
   const now = Date.now();
   const currentDailyKey = getCurrentDailyCycleKey();
-  const allUsers = Array.from(presenceMap.values());
+  const allUsers = Array.from(presenceMap.values()).filter(
+    (u) => u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')
+  );
 
   const onlineUsers = allUsers
-    .filter((u) => now - u.lastActive < 30000)
+    .filter((u) => now - u.lastActive < 18000)
     .map((u) => ({
       ...u,
       isOnline: true,
@@ -147,7 +151,7 @@ function getPresenceSnapshot() {
     .filter((u) => u.lastLoginDate === currentDailyKey)
     .map((u) => ({
       ...u,
-      isOnline: now - u.lastActive < 30000,
+      isOnline: now - u.lastActive < 18000,
     }))
     .sort((a, b) => b.lastActive - a.lastActive);
 
@@ -468,6 +472,11 @@ async function startServer() {
     const { id, name, avatarUrl, rating, rankTier } = req.body;
     if (!id || !name) {
       return res.status(400).json({ error: 'id and name are required' });
+    }
+
+    // Strictly forbid bots from registering presence
+    if (String(id).toLowerCase().includes('bot') || String(name).toLowerCase().includes('bot')) {
+      return res.status(400).json({ error: 'Bots cannot be registered as presence users' });
     }
 
     const currentDailyKey = getCurrentDailyCycleKey();
@@ -812,6 +821,38 @@ async function startServer() {
     });
 
     ws.on('close', () => {
+      const meta = clientMeta.get(ws);
+      if (meta && meta.playerId) {
+        // Clean from queue
+        const q1Idx = rankedQueue1v1.findIndex((p) => p.id === meta.playerId);
+        if (q1Idx >= 0) rankedQueue1v1.splice(q1Idx, 1);
+        const q2Idx = rankedQueue2v2.findIndex((p) => p.id === meta.playerId);
+        if (q2Idx >= 0) rankedQueue2v2.splice(q2Idx, 1);
+
+        // Check if player has other sockets open
+        let hasOtherSocket = false;
+        clientMeta.forEach((otherMeta, otherWs) => {
+          if (otherWs !== ws && otherMeta.playerId === meta.playerId && otherWs.readyState === WebSocket.OPEN) {
+            hasOtherSocket = true;
+          }
+        });
+
+        if (!hasOtherSocket) {
+          const user = presenceMap.get(meta.playerId);
+          if (user) {
+            user.lastActive = 0; // Mark offline immediately
+          }
+          broadcastEvent({
+            type: 'PRESENCE_SNAPSHOT',
+            ...getPresenceSnapshot(),
+          });
+          broadcastEvent({
+            type: 'QUEUE_STATUS',
+            queue1v1Count: rankedQueue1v1.length,
+            queue2v2Count: rankedQueue2v2.length,
+          });
+        }
+      }
       clientMeta.delete(ws);
     });
   });

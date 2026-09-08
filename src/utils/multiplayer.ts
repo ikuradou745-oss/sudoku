@@ -90,13 +90,13 @@ class RealtimePresenceAndRankedService {
       if (raw) {
         const list = JSON.parse(raw);
         if (Array.isArray(list)) {
-          const now = Date.now();
           // Filter out any users with 'bot' in id or name
           const valid = list.filter(
-            (u: OnlineUserPresence) => u.id && !u.id.includes('bot') && !u.name.includes('bot')
+            (u: OnlineUserPresence) => u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')
           );
           this.todayUsers = valid;
-          this.onlineUsers = valid.filter((u) => now - u.lastActive < 60000);
+          // Note: onlineUsers must strictly come from live server/tab presence, NEVER stale local cache
+          this.onlineUsers = [];
         }
       }
     } catch {
@@ -107,7 +107,7 @@ class RealtimePresenceAndRankedService {
   private saveCachedRealPresence() {
     try {
       const valid = this.todayUsers.filter(
-        (u) => u.id && !u.id.includes('bot') && !u.name.includes('bot')
+        (u) => u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')
       );
       localStorage.setItem('uolingo_real_today_users_cache_v1', JSON.stringify(valid));
     } catch {

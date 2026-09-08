@@ -56,12 +56,17 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
 
   const userRank = getRankInfo(currentUser.rating || 0);
 
-  // Filter list by search query
-  const filteredOnline = onlineUsers.filter((u) =>
-    (u.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+  const isRealUser = (u: OnlineUserPresence) =>
+    !!u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot');
+
+  // Filter list by search query (Strictly real users only)
+  const filteredOnline = onlineUsers.filter(
+    (u) => isRealUser(u) && (u.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
-  const filteredToday = todayUsers.filter((u) =>
-    (u.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+  const otherOnlineUsers = filteredOnline.filter((u) => u.id !== currentUser.userId);
+
+  const filteredToday = todayUsers.filter(
+    (u) => isRealUser(u) && (u.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -194,18 +199,13 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
         {/* Member List Content */}
         <div className="mt-3 flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
           {tab === 'online' ? (
-            filteredOnline.length > 0 ? (
-              filteredOnline.map((user) => {
+            otherOnlineUsers.length > 0 ? (
+              otherOnlineUsers.map((user) => {
                 const rank = getRankInfo(user.rating || 0);
-                const isMe = user.id === currentUser.userId;
                 return (
                   <div
                     key={user.id}
-                    className={`p-3 rounded-2xl border-2 flex items-center justify-between transition-all ${
-                      isMe
-                        ? 'bg-[#F0FDF4] border-[#86EFAC]'
-                        : 'bg-white border-[#E5E5E5] hover:border-[#BDE3F8]'
-                    }`}
+                    className="p-3 rounded-2xl border-2 flex items-center justify-between transition-all bg-white border-[#E5E5E5] hover:border-[#BDE3F8]"
                   >
                     <div className="flex items-center gap-3">
                       {/* Avatar */}
@@ -229,11 +229,6 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                           <span className="text-sm font-black text-[#3C3C3C] max-w-[140px] sm:max-w-[200px] truncate">
                             {user.name}
                           </span>
-                          {isMe && (
-                            <span className="text-[10px] font-black bg-[#58CC02] text-white px-1.5 py-0.2 rounded-md">
-                              あなた
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className={`px-2 py-0.2 rounded-full border text-[10px] font-black flex items-center gap-1 ${rank.badgeBg}`}>
@@ -255,8 +250,14 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                 );
               })
             ) : (
-              <div className="py-12 text-center text-[#AFAFAF] font-bold text-sm">
-                現在オンラインの他プレイヤーはいません
+              <div className="py-10 text-center flex flex-col items-center justify-center gap-2 px-4">
+                <div className="w-10 h-10 rounded-full bg-[#F0FDF4] border-2 border-[#BBF7D0] flex items-center justify-center text-lg">
+                  🟢
+                </div>
+                <div className="text-sm font-black text-[#3C3C3C]">現在オンラインの他のプレイヤーはいません</div>
+                <div className="text-xs font-bold text-[#777777] max-w-xs">
+                  現在あなたのみ接続中です（ボット等の水増しは一切ありません）。別タブや他のプレイヤーが接続するとリアルタイムでここに表示されます。
+                </div>
               </div>
             )
           ) : (

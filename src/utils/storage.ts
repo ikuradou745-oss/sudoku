@@ -1,15 +1,30 @@
 import { UserStats } from '../types';
 
 const STORAGE_KEY = 'uolingo_user_stats_v2';
+const DEVICE_USER_ID_KEY = 'uolingo_device_user_id';
+
+function getOrCreatePersistentUserId(): string {
+  try {
+    let id = localStorage.getItem(DEVICE_USER_ID_KEY);
+    if (!id) {
+      id = `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+      localStorage.setItem(DEVICE_USER_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+  }
+}
 
 export function getStoredUserStats(): UserStats {
+  const persistentId = getOrCreatePersistentUserId();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      const userId = parsed.userId || `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+      const userId = parsed.userId || persistentId;
       const rating = typeof parsed.rating === 'number' ? parsed.rating : 0;
-      return {
+      const stats: UserStats = {
         userId,
         energy: typeof parsed.energy === 'number' ? parsed.energy : 10,
         streak: typeof parsed.streak === 'number' ? parsed.streak : 1,
@@ -25,13 +40,17 @@ export function getStoredUserStats(): UserStats {
         rankedWins: parsed.rankedWins || 0,
         rankedLosses: parsed.rankedLosses || 0,
       };
+      // Ensure userId is saved
+      if (!parsed.userId) {
+        saveUserStats(stats);
+      }
+      return stats;
     }
   } catch {
     // Ignore error
   }
-  const newUserId = `u_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
-  return {
-    userId: newUserId,
+  const initialStats: UserStats = {
+    userId: persistentId,
     energy: 10,
     streak: 1,
     lastDailyDate: null,
@@ -46,6 +65,8 @@ export function getStoredUserStats(): UserStats {
     rankedWins: 0,
     rankedLosses: 0,
   };
+  saveUserStats(initialStats);
+  return initialStats;
 }
 
 export function saveUserStats(stats: UserStats): void {
