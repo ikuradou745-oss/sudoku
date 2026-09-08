@@ -21,6 +21,42 @@
     <link rel="stylesheet" crossorigin href="/sudoku/assets/index-Of7NDDty.css">
   </head>
   <body class="bg-[#FFFFFF] text-[#4B4B4B] antialiased min-h-screen selection:bg-[#58CC02] selection:text-white">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback display if uncompiled source is served directly on static hosting -->
+      <noscript>
+        <div style="font-family: sans-serif; padding: 24px; max-width: 600px; margin: 40px auto; background: #FFF4E5; border: 2px solid #FF9800; border-radius: 16px; color: #663C00;">
+          <h2>JavaScriptを有効にしてください</h2>
+          <p>このアプリケーションを実行するにはブラウザのJavaScriptが必要です。</p>
+        </div>
+      </noscript>
+      <div id="gh-pages-hint" style="display:none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 32px; max-width: 640px; margin: 48px auto; background: #FFFFFF; border: 2px solid #E5E7EB; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border-radius: 20px; color: #1F2937; line-height: 1.6;">
+        <div style="font-size: 40px; margin-bottom: 12px;">🐟</div>
+        <h2 style="margin: 0 0 12px 0; color: #111827; font-size: 22px; font-weight: 800;">GitHub Pages の設定切り替えが必要です</h2>
+        <p style="color: #4B5563; font-size: 15px; margin-bottom: 20px;">
+          現在、GitHub Pages の配信元がビルド前の <code>main</code> ブランチに設定されているため、画面が表示されていません。ビルド済みの <strong>gh-pages ブランチ</strong> または <strong>GitHub Actions</strong> に切り替えてください。
+        </p>
+        <div style="background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px; margin-bottom: 20px; font-size: 14px;">
+          <strong style="color: #111827; display: block; margin-bottom: 8px;">【切り替え手順（30秒）】</strong>
+          <ol style="margin: 0; padding-left: 20px; color: #374151;">
+            <li style="margin-bottom: 6px;">GitHubリポジトリの <strong>「Settings」</strong>（設定）タブを開く</li>
+            <li style="margin-bottom: 6px;">左サイドバーの <strong>「Pages」</strong> をクリック</li>
+            <li style="margin-bottom: 6px;"><strong>「Build and deployment」</strong> 内の <strong>Branch</strong> を <code>main</code> から <strong>『gh-pages』</strong> に変更して <strong>「Save」</strong> を押す（または Source を <strong>『GitHub Actions』</strong> に変更）</li>
+          </ol>
+        </div>
+        <p style="margin: 0; color: #6B7280; font-size: 13px;">
+          ※設定保存後、約1分でアプリが正常に起動します。
+        </p>
+      </div>
+      <script>
+        setTimeout(function() {
+          var hint = document.getElementById('gh-pages-hint');
+          var root = document.getElementById('root');
+          // If React has not mounted and replaced root content after 2 seconds
+          if (hint && root && root.children.length > 0 && root.querySelector('#gh-pages-hint')) {
+            hint.style.display = 'block';
+          }
+        }, 2000);
+      </script>
+    </div>
   </body>
 </html>
