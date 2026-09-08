@@ -74,41 +74,51 @@ class RealtimePresenceAndRankedService {
   private pollTimer: any = null;
   private broadcastChannel: BroadcastChannel | null = null;
 
+  private localQueuedState: { mode: '1vs1' | '2vs2'; roomCode: string | null } | null = null;
+
   constructor() {
     if (typeof window !== 'undefined') {
       this.initBroadcastChannel();
-      this.seedLocalPresence();
+      this.loadCachedRealPresence();
       this.checkServerAvailability();
     }
   }
 
-  private seedLocalPresence() {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const defaultOnline: OnlineUserPresence[] = [
-      { id: 'u_bot_1', name: 'サクラ', avatarUrl: null, rating: 280, rankTier: 'bronze', lastActive: Date.now() - 30000, isOnline: true, lastLoginDate: todayStr },
-      { id: 'u_bot_2', name: 'ケンタ', avatarUrl: null, rating: 520, rankTier: 'silver', lastActive: Date.now() - 60000, isOnline: true, lastLoginDate: todayStr },
-      { id: 'u_bot_3', name: 'エマ', avatarUrl: null, rating: 890, rankTier: 'gold', lastActive: Date.now() - 120000, isOnline: true, lastLoginDate: todayStr },
-    ];
-    this.onlineUsers = defaultOnline;
-    this.todayUsers = [...defaultOnline];
+  private loadCachedRealPresence() {
+    try {
+      const raw = localStorage.getItem('uolingo_real_today_users_cache_v1');
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          const now = Date.now();
+          // Filter out any users with 'bot' in id or name
+          const valid = list.filter(
+            (u: OnlineUserPresence) => u.id && !u.id.includes('bot') && !u.name.includes('bot')
+          );
+          this.todayUsers = valid;
+          this.onlineUsers = valid.filter((u) => now - u.lastActive < 60000);
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  private saveCachedRealPresence() {
+    try {
+      const valid = this.todayUsers.filter(
+        (u) => u.id && !u.id.includes('bot') && !u.name.includes('bot')
+      );
+      localStorage.setItem('uolingo_real_today_users_cache_v1', JSON.stringify(valid));
+    } catch {
+      // Ignore
+    }
   }
 
   private async checkServerAvailability() {
-    // Only attempt server backend if running on Cloud Run or local dev server
-    if (typeof window !== 'undefined') {
-      const isBackendHost = window.location.hostname === 'localhost' || 
-                            window.location.hostname === '127.0.0.1' || 
-                            window.location.hostname.includes('run.app');
-      if (!isBackendHost) {
-        this.isServerAvailable = false;
-        this.notifyStatus(true, 'Local Offline & Peer Network');
-        return;
-      }
-    }
-
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1500);
+      const timeout = setTimeout(() => controller.abort(), 2000);
       const res = await fetch('/api/presence/members', { signal: controller.signal });
       clearTimeout(timeout);
 
@@ -118,13 +128,14 @@ class RealtimePresenceAndRankedService {
         this.initNativeWebSocket();
         this.startHeartbeatLoop();
         this.startPollingLoop();
+        this.notifyStatus(true, 'Online Server');
       } else {
         this.isServerAvailable = false;
-        this.notifyStatus(true, 'Standalone Mode');
+        this.notifyStatus(true, 'Peer & Tab Network');
       }
     } catch {
       this.isServerAvailable = false;
-      this.notifyStatus(true, 'Standalone Mode');
+      this.notifyStatus(true, 'Peer & Tab Network');
     }
   }
 
@@ -216,13 +227,121 @@ class RealtimePresenceAndRankedService {
       if (typeof BroadcastChannel !== 'undefined') {
         this.broadcastChannel = new BroadcastChannel('uolingo_ranked_sync_v1');
         this.broadcastChannel.onmessage = (e) => {
-          if (e.data) {
-            this.handleIncomingServerEvent(e.data, false);
+          if (!e.data) return;
+          const data = e.data;
+
+          // Tab Presence Sync
+          if (data.type === 'TAB_HEARTBEAT') {
+            if (data.user && data.user.id !== this.currentUserId) {
+              this.handleRemoteUserHeartbeat(data.user);
+            }
+            return;
           }
+
+          // Tab Queue Matching
+          if (data.type === 'TAB_QUEUE_REQUEST') {
+            this.handleIncomingTabQueue(data);
+            return;
+          }
+
+          if (data.type === 'TAB_QUEUE_CANCEL') {
+            // Cancelled
+            return;
+          }
+
+          this.handleIncomingServerEvent(data, false);
         };
       }
     } catch {
       // Ignored
+    }
+  }
+
+  private handleRemoteUserHeartbeat(remote: OnlineUserPresence) {
+    if (!remote.id || remote.id.includes('bot')) return;
+    const now = Date.now();
+    const existingOnline = this.onlineUsers.findIndex((u) => u.id === remote.id);
+    if (existingOnline >= 0) {
+      this.onlineUsers[existingOnline] = { ...remote, lastActive: now, isOnline: true };
+    } else {
+      this.onlineUsers.push({ ...remote, lastActive: now, isOnline: true });
+    }
+
+    const existingToday = this.todayUsers.findIndex((u) => u.id === remote.id);
+    if (existingToday >= 0) {
+      this.todayUsers[existingToday] = { ...remote, lastActive: now, isOnline: true };
+    } else {
+      this.todayUsers.push({ ...remote, lastActive: now, isOnline: true });
+    }
+
+    this.saveCachedRealPresence();
+    this.emitEvent({
+      type: 'PRESENCE_SNAPSHOT',
+      onlineUsers: this.onlineUsers,
+      todayUsers: this.todayUsers,
+    });
+  }
+
+  private handleIncomingTabQueue(data: any) {
+    if (!this.localQueuedState) return;
+    if (data.player.id === this.currentUserId) return;
+
+    // Check if mode and roomCode match
+    const modeMatch = this.localQueuedState.mode === data.mode;
+    const myCode = (this.localQueuedState.roomCode || '').trim().toUpperCase();
+    const otherCode = (data.roomCode || '').trim().toUpperCase();
+    const codeMatch = myCode === otherCode;
+
+    if (modeMatch && codeMatch) {
+      // Tie-breaker to ensure only one tab generates the session
+      if (this.currentUserId > data.player.id) {
+        const matchId = `match_${Date.now()}_tab`;
+        const session: RankedMatchSession = {
+          matchId,
+          mode: this.localQueuedState.mode,
+          status: 'countdown',
+          seed: Math.floor(Math.random() * 100000),
+          createdAt: Date.now(),
+          players: [
+            {
+              id: this.currentUserId,
+              name: this.currentUserName,
+              avatarUrl: this.currentAvatarUrl,
+              rating: this.currentRating,
+              rankTier: this.currentRankTier,
+              progress: 0,
+              score: 0,
+              mistakes: 0,
+              lives: 3,
+              isKO: false,
+              finished: false,
+            },
+            {
+              id: data.player.id,
+              name: data.player.name,
+              avatarUrl: data.player.avatarUrl,
+              rating: data.player.rating,
+              rankTier: data.player.rankTier,
+              progress: 0,
+              score: 0,
+              mistakes: 0,
+              lives: 3,
+              isKO: false,
+              finished: false,
+            },
+          ],
+        };
+
+        this.localQueuedState = null;
+        this.handleIncomingServerEvent(
+          {
+            type: 'RANKED_MATCH_FOUND',
+            matchId,
+            session,
+          },
+          true
+        );
+      }
     }
   }
 
@@ -392,6 +511,52 @@ class RealtimePresenceAndRankedService {
     this.currentRating = rating;
     this.currentRankTier = rankTier;
 
+    const now = Date.now();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const me: OnlineUserPresence = {
+      id: playerId,
+      name,
+      avatarUrl,
+      rating,
+      rankTier,
+      lastActive: now,
+      isOnline: true,
+      lastLoginDate: todayStr,
+    };
+
+    const onlineIdx = this.onlineUsers.findIndex((u) => u.id === playerId);
+    if (onlineIdx >= 0) {
+      this.onlineUsers[onlineIdx] = me;
+    } else {
+      this.onlineUsers.unshift(me);
+    }
+
+    const todayIdx = this.todayUsers.findIndex((u) => u.id === playerId);
+    if (todayIdx >= 0) {
+      this.todayUsers[todayIdx] = me;
+    } else {
+      this.todayUsers.unshift(me);
+    }
+
+    this.saveCachedRealPresence();
+    this.emitEvent({
+      type: 'PRESENCE_SNAPSHOT',
+      onlineUsers: this.onlineUsers,
+      todayUsers: this.todayUsers,
+    });
+
+    // Notify other tabs
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage({
+          type: 'TAB_HEARTBEAT',
+          user: me,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
     this.sendHeartbeat();
 
     if (this.wsServer && this.wsServer.readyState === WebSocket.OPEN) {
@@ -416,24 +581,48 @@ class RealtimePresenceAndRankedService {
   }
 
   // Matchmaking
-  public async queueRanked(mode: '1vs1' | '2vs2', partyId?: string) {
+  public async queueRanked(mode: '1vs1' | '2vs2', partyId?: string, roomCode?: string) {
+    const playerObj = {
+      id: this.currentUserId,
+      name: this.currentUserName,
+      avatarUrl: this.currentAvatarUrl,
+      rating: this.currentRating,
+      rankTier: this.currentRankTier,
+    };
+
+    this.localQueuedState = {
+      mode,
+      roomCode: roomCode ? String(roomCode).trim().toUpperCase() : null,
+    };
+
+    // Broadcast queue to other browser tabs
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage({
+          type: 'TAB_QUEUE_REQUEST',
+          player: playerObj,
+          mode,
+          roomCode: this.localQueuedState.roomCode,
+          partyId: partyId || null,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
     if (!this.isServerAvailable) {
       return { ok: true, offlineFallback: true };
     }
+
     try {
       const res = await fetch('/api/ranked/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          player: {
-            id: this.currentUserId,
-            name: this.currentUserName,
-            avatarUrl: this.currentAvatarUrl,
-            rating: this.currentRating,
-            rankTier: this.currentRankTier,
-          },
+          player: playerObj,
           mode,
           partyId,
+          roomCode: this.localQueuedState.roomCode,
         }),
       });
       return await res.json();
@@ -443,6 +632,19 @@ class RealtimePresenceAndRankedService {
   }
 
   public async cancelQueue() {
+    this.localQueuedState = null;
+
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage({
+          type: 'TAB_QUEUE_CANCEL',
+          playerId: this.currentUserId,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
     if (!this.isServerAvailable) return;
     try {
       await fetch('/api/ranked/cancel-queue', {
@@ -464,6 +666,44 @@ class RealtimePresenceAndRankedService {
     isKO: boolean,
     finished: boolean
   ) {
+    // Broadcast progress across tabs immediately
+    if (this.broadcastChannel) {
+      try {
+        const dummyMatch: any = {
+          matchId,
+          players: [
+            {
+              id: this.currentUserId,
+              name: this.currentUserName,
+              avatarUrl: this.currentAvatarUrl,
+              rating: this.currentRating,
+              rankTier: this.currentRankTier,
+              progress,
+              score,
+              mistakes,
+              lives,
+              isKO,
+              finished,
+            },
+          ],
+        };
+        this.broadcastChannel.postMessage({
+          type: 'RANKED_PROGRESS_UPDATE',
+          matchId,
+          match: dummyMatch,
+          playerId: this.currentUserId,
+          progress,
+          score,
+          mistakes,
+          lives,
+          isKO,
+          finished,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
     if (!this.isServerAvailable) return;
     try {
       await fetch('/api/ranked/progress', {
@@ -486,6 +726,19 @@ class RealtimePresenceAndRankedService {
   }
 
   public async forfeitMatch(matchId: string) {
+    if (this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage({
+          type: 'RANKED_FORFEIT_OCCURRED',
+          matchId,
+          forfeitedPlayerId: this.currentUserId,
+          match: { matchId, players: [] } as any,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
     if (!this.isServerAvailable) return;
     try {
       await fetch('/api/ranked/forfeit', {

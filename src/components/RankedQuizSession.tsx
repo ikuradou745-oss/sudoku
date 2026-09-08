@@ -146,46 +146,8 @@ export function RankedQuizSession({
     return () => unsubscribe();
   }, [session.matchId, stats.userId]);
 
-  // 4. Opponent Bot Simulation (for placement match or when playing against bot)
-  useEffect(() => {
-    if (matchState !== 'playing' || isFinished) return;
-
-    const botOpponents = players.filter((p) => p.isBot && !p.finished && !p.isKO);
-    if (botOpponents.length === 0) return;
-
-    const botInterval = setInterval(() => {
-      setPlayers((prev) =>
-        prev.map((player) => {
-          if (player.isBot && !player.finished && !player.isKO) {
-            // Chance to answer question correctly
-            const isCorrect = isPlacement ? Math.random() > 0.25 : Math.random() > 0.2;
-            const newProgress = Math.min(10, (player.progress || 0) + (isCorrect ? 1 : 0));
-            const newMistakes = (player.mistakes || 0) + (isCorrect ? 0 : 1);
-            const newLives = Math.max(0, 3 - newMistakes);
-            const botFinished = newProgress >= 10;
-            const botKO = newLives <= 0;
-
-            if (botFinished && !isFinished) {
-              handleMatchEnd(false);
-            }
-
-            return {
-              ...player,
-              progress: newProgress,
-              mistakes: newMistakes,
-              lives: newLives,
-              isKO: botKO,
-              finished: botFinished,
-              score: (player.score || 0) + (isCorrect ? 100 : 0),
-            };
-          }
-          return player;
-        })
-      );
-    }, 4500);
-
-    return () => clearInterval(botInterval);
-  }, [matchState, isFinished, isPlacement]);
+  // 4. Opponent Progress is purely driven by real network events (No Bots)
+  // Opponent progress updates arrive via RANKED_PROGRESS_UPDATE above
 
   // 5. Initialize Current Question Options
   useEffect(() => {

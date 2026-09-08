@@ -25,6 +25,7 @@ interface RankedQueuePlayer {
   rankTier: RankTier;
   joinedAt: number;
   partyId?: string | null;
+  roomCode?: string | null;
 }
 
 interface RankedMatchPlayer {
@@ -91,6 +92,38 @@ const rankedQueue2v2: RankedQueuePlayer[] = [];
 const activeParties = new Map<string, PartyInfo>();
 const activeRankedMatches = new Map<string, RankedMatchSession>();
 
+const PRESENCE_CACHE_FILE = path.join(process.cwd(), 'presence_cache.json');
+function loadPresenceCache() {
+  try {
+    if (fs.existsSync(PRESENCE_CACHE_FILE)) {
+      const raw = fs.readFileSync(PRESENCE_CACHE_FILE, 'utf8');
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const todayKey = getCurrentDailyCycleKey();
+        list.forEach((u: PresenceUser) => {
+          if (u.id && u.name) {
+            // Keep users from today
+            if (u.lastLoginDate === todayKey || Date.now() - u.lastActive < 86400000) {
+              presenceMap.set(u.id, u);
+            }
+          }
+        });
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
+function savePresenceCache() {
+  try {
+    const list = Array.from(presenceMap.values());
+    fs.writeFileSync(PRESENCE_CACHE_FILE, JSON.stringify(list, null, 2), 'utf8');
+  } catch {
+    // Ignore
+  }
+}
+loadPresenceCache();
+
 // Client Connection Context for WebSockets
 const clientMeta = new Map<WebSocket, { playerId: string; name: string }>();
 
@@ -146,6 +179,17 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Enable CORS
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // Real-time WebSocket Server
   const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -192,56 +236,88 @@ async function startServer() {
   // ==========================================
   // Matchmaking Check Engine
   // ==========================================
+  function create1v1Session(p1: RankedQueuePlayer, p2: RankedQueuePlayer) {
+    const matchId = `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const session: RankedMatchSession = {
+      matchId,
+      mode: '1vs1',
+      status: 'countdown',
+      seed: Math.floor(Math.random() * 100000),
+      createdAt: Date.now(),
+      players: [
+        {
+          id: p1.id,
+          name: p1.name,
+          avatarUrl: p1.avatarUrl,
+          rating: p1.rating,
+          rankTier: p1.rankTier,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+        },
+        {
+          id: p2.id,
+          name: p2.name,
+          avatarUrl: p2.avatarUrl,
+          rating: p2.rating,
+          rankTier: p2.rankTier,
+          progress: 0,
+          score: 0,
+          mistakes: 0,
+          lives: 3,
+          isKO: false,
+          finished: false,
+        },
+      ],
+    };
+
+    activeRankedMatches.set(matchId, session);
+
+    // Broadcast match found to everyone and targets
+    broadcastEvent({
+      type: 'RANKED_MATCH_FOUND',
+      matchId,
+      session,
+    });
+  }
+
   function tryMatchmaking1v1() {
-    while (rankedQueue1v1.length >= 2) {
-      const p1 = rankedQueue1v1.shift()!;
-      const p2 = rankedQueue1v1.shift()!;
+    // 1. Match players with identical roomCode first
+    const roomMap = new Map<string, RankedQueuePlayer[]>();
+    for (const p of rankedQueue1v1) {
+      if (p.roomCode && p.roomCode.trim()) {
+        const code = p.roomCode.trim().toUpperCase();
+        const list = roomMap.get(code) || [];
+        list.push(p);
+        roomMap.set(code, list);
+      }
+    }
 
-      const matchId = `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const session: RankedMatchSession = {
-        matchId,
-        mode: '1vs1',
-        status: 'countdown',
-        seed: Math.floor(Math.random() * 100000),
-        createdAt: Date.now(),
-        players: [
-          {
-            id: p1.id,
-            name: p1.name,
-            avatarUrl: p1.avatarUrl,
-            rating: p1.rating,
-            rankTier: p1.rankTier,
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-            lives: 3,
-            isKO: false,
-            finished: false,
-          },
-          {
-            id: p2.id,
-            name: p2.name,
-            avatarUrl: p2.avatarUrl,
-            rating: p2.rating,
-            rankTier: p2.rankTier,
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-            lives: 3,
-            isKO: false,
-            finished: false,
-          },
-        ],
-      };
+    for (const [, list] of roomMap.entries()) {
+      while (list.length >= 2) {
+        const p1 = list.shift()!;
+        const p2 = list.shift()!;
+        const idx1 = rankedQueue1v1.indexOf(p1);
+        if (idx1 >= 0) rankedQueue1v1.splice(idx1, 1);
+        const idx2 = rankedQueue1v1.indexOf(p2);
+        if (idx2 >= 0) rankedQueue1v1.splice(idx2, 1);
+        create1v1Session(p1, p2);
+      }
+    }
 
-      activeRankedMatches.set(matchId, session);
-
-      // Broadcast match found to everyone and targets
-      broadcastEvent({
-        type: 'RANKED_MATCH_FOUND',
-        matchId,
-        session,
-      });
+    // 2. Match public queue players (without roomCode)
+    const publicList = rankedQueue1v1.filter((p) => !p.roomCode || !p.roomCode.trim());
+    while (publicList.length >= 2) {
+      const p1 = publicList.shift()!;
+      const p2 = publicList.shift()!;
+      const idx1 = rankedQueue1v1.indexOf(p1);
+      if (idx1 >= 0) rankedQueue1v1.splice(idx1, 1);
+      const idx2 = rankedQueue1v1.indexOf(p2);
+      if (idx2 >= 0) rankedQueue1v1.splice(idx2, 1);
+      create1v1Session(p1, p2);
     }
   }
 
@@ -408,6 +484,7 @@ async function startServer() {
     };
 
     presenceMap.set(id, updatedUser);
+    savePresenceCache();
 
     broadcastEvent({
       type: 'PRESENCE_SNAPSHOT',
@@ -425,7 +502,7 @@ async function startServer() {
   // 3. Ranked Matchmaking REST Endpoints
   // ==========================================
   app.post('/api/ranked/queue', (req, res) => {
-    const { player, mode, partyId } = req.body;
+    const { player, mode, partyId, roomCode } = req.body;
     if (!player || !player.id || !mode) {
       return res.status(400).json({ error: 'player and mode are required' });
     }
@@ -446,6 +523,7 @@ async function startServer() {
       rankTier: player.rankTier || 'bronze',
       joinedAt: Date.now(),
       partyId: partyId || null,
+      roomCode: roomCode ? String(roomCode).trim().toUpperCase() : null,
     };
 
     if (mode === '1vs1') {

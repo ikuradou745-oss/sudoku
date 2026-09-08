@@ -22,6 +22,7 @@ import {
 } from '../utils/storage';
 import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
+import { realtimePresence } from '../utils/multiplayer';
 
 interface HomeScreenProps {
   stats: UserStats;
@@ -46,6 +47,7 @@ export function HomeScreen({
 }: HomeScreenProps) {
   const [dailyDone, setDailyDone] = useState<boolean>(false);
   const [resetCountdown, setResetCountdown] = useState<string>('');
+  const [onlineCount, setOnlineCount] = useState<number>(() => realtimePresence.getOnlineUsers().length);
 
   useEffect(() => {
     const isDone = isDailyCompletedToday(stats.lastDailyDate);
@@ -56,7 +58,16 @@ export function HomeScreen({
       setResetCountdown(getNextResetTimeString());
     }, 60000);
 
-    return () => clearInterval(interval);
+    const unsubscribe = realtimePresence.subscribe((event) => {
+      if (event.type === 'PRESENCE_SNAPSHOT') {
+        setOnlineCount(event.onlineUsers.length);
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
   }, [stats.lastDailyDate]);
 
   const userRank = getRankInfo(stats.rating || 0);
@@ -150,10 +161,14 @@ export function HomeScreen({
               audio.playTap();
               onOpenCommunity();
             }}
-            className="w-10 h-10 rounded-2xl bg-[#EBF7FD] hover:bg-[#DDF2FD] border-2 border-[#BDE3F8] hover:border-[#1CB0F6] flex items-center justify-center text-lg transition-all cursor-pointer shadow-xs active:scale-95"
+            className="h-10 px-2.5 rounded-2xl bg-[#EBF7FD] hover:bg-[#DDF2FD] border-2 border-[#BDE3F8] hover:border-[#1CB0F6] flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
             title="👥 今日ログインした人・現在オンライン中のメンバー"
           >
-            <span className="leading-none">👥</span>
+            <span className="leading-none text-base">👥</span>
+            <span className="text-xs font-black text-[#1CB0F6] flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-[#58CC02] animate-pulse" />
+              <span>{onlineCount}人</span>
+            </span>
           </button>
         </div>
       </header>

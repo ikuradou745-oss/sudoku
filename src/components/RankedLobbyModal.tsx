@@ -8,7 +8,6 @@ import {
   ShieldAlert, 
   RotateCw, 
   ArrowRight,
-  Bot,
   Check,
   Copy,
   LogOut,
@@ -33,6 +32,12 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   const [queueTimer, setQueueTimer] = useState<number>(0);
   const [showRules, setShowRules] = useState<boolean>(false);
 
+  // Matchmaking & Room Code State
+  const [matchType, setMatchType] = useState<'public' | 'room'>('public');
+  const [roomCode, setRoomCode] = useState<string>('');
+  const [queueCounts, setQueueCounts] = useState<{ queue1v1Count: number; queue2v2Count: number }>({ queue1v1Count: 0, queue2v2Count: 0 });
+  const [onlineCount, setOnlineCount] = useState<number>(() => realtimePresence.getOnlineUsers().length);
+
   // Party State for 2vs2
   const [currentParty, setCurrentParty] = useState<PartyInfo | null>(null);
   const [joinPartyCode, setJoinPartyCode] = useState<string>('');
@@ -45,12 +50,19 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   useEffect(() => {
     const unsubscribe = realtimePresence.subscribe((event) => {
       if (event.type === 'RANKED_MATCH_FOUND') {
-        // Match found!
+        // Real Match found!
         if (event.session.players.some((p) => p.id === stats.userId)) {
           audio.playMatchFound();
           setIsSearching(false);
           onStartMatch(event.session, false);
         }
+      } else if (event.type === 'QUEUE_STATUS') {
+        setQueueCounts({
+          queue1v1Count: event.queue1v1Count,
+          queue2v2Count: event.queue2v2Count,
+        });
+      } else if (event.type === 'PRESENCE_SNAPSHOT') {
+        setOnlineCount(event.onlineUsers.length);
       } else if (event.type === 'PARTY_UPDATED') {
         if (event.party && event.party.players.some((p) => p.id === stats.userId)) {
           setCurrentParty(event.party);
@@ -81,145 +93,11 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
     return () => clearInterval(interval);
   }, [isSearching]);
 
-  // Launch match with simulated opponent or AI challenger
-  const launchMatchWithOpponent = () => {
-    const opponentRating = Math.max(0, (stats.rating || 100) + (Math.floor(Math.random() * 40) - 20));
-    const opponentRank = getRankInfo(opponentRating);
-    const botNames = ['サクラ', 'ケンタ', 'ハヤト', 'ユウキ', 'エマ', 'タクミ', 'アスカ'];
-    const randomName = botNames[Math.floor(Math.random() * botNames.length)];
-
-    if (selectedMode === '1vs1') {
-      const dummySession: RankedMatchSession = {
-        matchId: `sim_match_${Date.now()}`,
-        mode: '1vs1',
-        status: 'countdown',
-        seed: Math.floor(Math.random() * 100000),
-        createdAt: Date.now(),
-        players: [
-          {
-            id: stats.userId || 'me',
-            name: stats.userName || '会員',
-            avatarUrl: stats.avatarUrl,
-            rating: stats.rating || 0,
-            rankTier: stats.rankTier || 'bronze',
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-            lives: 3,
-            isKO: false,
-            finished: false,
-          },
-          {
-            id: `bot_${Date.now()}`,
-            name: randomName,
-            avatarUrl: null,
-            rating: opponentRating,
-            rankTier: opponentRank.tier,
-            progress: 0,
-            score: 0,
-            mistakes: 0,
-            lives: 3,
-            isKO: false,
-            finished: false,
-            isBot: true,
-          },
-        ],
-      };
-      audio.playMatchFound();
-      setIsSearching(false);
-      onStartMatch(dummySession, false);
-    } else {
-      // 2vs2 fallback
-      const teamRed = [
-        {
-          id: stats.userId || 'me',
-          name: stats.userName || '会員',
-          avatarUrl: stats.avatarUrl,
-          rating: stats.rating || 0,
-          rankTier: stats.rankTier || 'bronze',
-          team: 'red' as const,
-          progress: 0,
-          score: 0,
-          mistakes: 0,
-          lives: 3,
-          isKO: false,
-          finished: false,
-        },
-        {
-          id: `bot_ally_${Date.now()}`,
-          name: 'タクミ (味方)',
-          avatarUrl: null,
-          rating: opponentRating,
-          rankTier: opponentRank.tier,
-          team: 'red' as const,
-          progress: 0,
-          score: 0,
-          mistakes: 0,
-          lives: 3,
-          isKO: false,
-          finished: false,
-          isBot: true,
-        },
-      ];
-      const teamBlue = [
-        {
-          id: `bot_enemy1_${Date.now()}`,
-          name: 'ハヤト',
-          avatarUrl: null,
-          rating: opponentRating + 10,
-          rankTier: opponentRank.tier,
-          team: 'blue' as const,
-          progress: 0,
-          score: 0,
-          mistakes: 0,
-          lives: 3,
-          isKO: false,
-          finished: false,
-          isBot: true,
-        },
-        {
-          id: `bot_enemy2_${Date.now()}`,
-          name: 'ユウキ',
-          avatarUrl: null,
-          rating: opponentRating - 10,
-          rankTier: opponentRank.tier,
-          team: 'blue' as const,
-          progress: 0,
-          score: 0,
-          mistakes: 0,
-          lives: 3,
-          isKO: false,
-          finished: false,
-          isBot: true,
-        },
-      ];
-
-      const session2v2: RankedMatchSession = {
-        matchId: `sim_2v2_${Date.now()}`,
-        mode: '2vs2',
-        status: 'countdown',
-        seed: Math.floor(Math.random() * 100000),
-        createdAt: Date.now(),
-        players: [...teamRed, ...teamBlue],
-        teams: { teamRed, teamBlue },
-      };
-      audio.playMatchFound();
-      setIsSearching(false);
-      onStartMatch(session2v2, false);
-    }
-  };
-
-  // Fallback simulator if waiting > 3 seconds
-  useEffect(() => {
-    if (isSearching && queueTimer >= 3) {
-      launchMatchWithOpponent();
-    }
-  }, [isSearching, queueTimer]);
-
   const handleStartQueue = async () => {
     audio.playTap();
     setIsSearching(true);
-    await realtimePresence.queueRanked(selectedMode, currentParty?.partyId);
+    const activeCode = matchType === 'room' && roomCode.trim() ? roomCode.trim().toUpperCase() : undefined;
+    await realtimePresence.queueRanked(selectedMode, currentParty?.partyId, activeCode);
   };
 
   const handleCancelQueue = async () => {
@@ -228,9 +106,18 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
     await realtimePresence.cancelQueue();
   };
 
+  const handleOpenDuplicateTab = () => {
+    audio.playTap();
+    try {
+      window.open(window.location.href, '_blank');
+    } catch {
+      // Ignore
+    }
+  };
+
   const handleStartPlacement = () => {
     audio.playTap();
-    // Launch placement match against the Diagnostic AI Bot
+    // Launch real solo diagnostic placement test (No bots)
     const placementSession: RankedMatchSession = {
       matchId: `placement_${Date.now()}`,
       mode: 'placement',
@@ -250,20 +137,6 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
           lives: 3,
           isKO: false,
           finished: false,
-        },
-        {
-          id: 'rank_eval_bot',
-          name: 'ランク判定AI',
-          avatarUrl: null,
-          rating: 200,
-          rankTier: 'gold',
-          progress: 0,
-          score: 0,
-          mistakes: 0,
-          lives: 3,
-          isKO: false,
-          finished: false,
-          isBot: true,
         },
       ],
     };
@@ -354,35 +227,46 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
             </div>
 
             <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#DCFCE7] text-[#166534] text-[11px] font-black mb-2">
+                <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
+                <span>完全オンライン待機中 (ボットなし)</span>
+              </div>
               <h3 className="text-2xl font-black text-[#3C3C3C] mb-1">
-                相手が来るまで待機...
+                対戦相手を探しています...
               </h3>
               <p className="text-xs font-bold text-[#777777]">
-                {selectedMode === '1vs1' ? '1vs1 シングル対戦を探しています' : '2vs2 チーム対戦を探しています (4人マッチング)'}
+                {matchType === 'room' && roomCode.trim()
+                  ? `合言葉「${roomCode.trim().toUpperCase()}」の対戦相手を待機中`
+                  : selectedMode === '1vs1'
+                  ? '1vs1 公募マッチング待機中'
+                  : '2vs2 チーム対戦待機中 (4人マッチング)'}
               </p>
             </div>
 
             {/* Waiting timer & queue info */}
-            <div className="inline-flex items-center gap-4 px-5 py-2.5 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5] text-xs font-black text-[#3C3C3C]">
+            <div className="inline-flex flex-wrap items-center justify-center gap-3 px-5 py-2.5 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5] text-xs font-black text-[#3C3C3C]">
               <div className="flex items-center gap-1.5 text-[#1CB0F6]">
                 <RotateCw className="w-4 h-4 animate-spin" />
-                <span>経過時間: {queueTimer}秒</span>
+                <span>待機時間: {queueTimer}秒</span>
+              </div>
+              <div className="w-px h-4 bg-[#E5E5E5]" />
+              <div className="text-[#58A700]">
+                待機列: {selectedMode === '1vs1' ? queueCounts.queue1v1Count : queueCounts.queue2v2Count}人
               </div>
               <div className="w-px h-4 bg-[#E5E5E5]" />
               <div className="text-[#FF9600]">
-                モード: {selectedMode}
+                オンライン: {onlineCount}人
               </div>
             </div>
 
-            {/* Action Buttons in Queue */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-xs mx-auto">
+            {/* Quick Dual-Tab Test Button & Cancel Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-sm mx-auto">
               <button
-                id="instant-start-match-btn"
-                onClick={launchMatchWithOpponent}
-                className="duo-btn duo-btn-green w-full py-3 rounded-2xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                type="button"
+                onClick={handleOpenDuplicateTab}
+                className="duo-btn duo-btn-blue w-full py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
-                <Swords className="w-4 h-4 text-white" />
-                <span>今すぐ対戦開始！</span>
+                <span>別タブを開いて対戦テスト</span>
               </button>
 
               <button
@@ -463,17 +347,17 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               <div className="p-4 rounded-2xl bg-gradient-to-r from-[#FFFBEB] to-[#FEF3C7] border-2 border-[#FDE68A] space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-white text-[#D97706] border border-[#FCD34D] flex items-center justify-center shrink-0 text-xl shadow-xs">
-                    <Bot className="w-6 h-6 text-[#D97706]" />
+                    <Sparkles className="w-6 h-6 text-[#D97706]" />
                   </div>
                   <div>
                     <div className="text-sm font-black text-[#92400E] flex items-center gap-1.5">
-                      <span>初回限定：ランク判定戦（実力診断）</span>
+                      <span>初回限定：実力診断ソロテスト (全10問)</span>
                       <span className="text-[10px] font-black bg-[#D97706] text-white px-1.5 py-0.2 rounded-md">
-                        おすすめ
+                        ソロ判定
                       </span>
                     </div>
                     <p className="text-xs font-bold text-[#B45309] mt-0.5 leading-relaxed">
-                      初回の試合は判定AIとの実力診断！あなたの回答スピード・正確性を分析し、最適な初期ランク（ブロンズ・シルバー・ゴールドなど）を自動認定します。
+                      10問のソロテストであなたの回答スピード・正確性を測定し、初期ランク（ブロンズ・シルバー・ゴールド等）を判定します！
                     </p>
                   </div>
                 </div>
@@ -484,7 +368,7 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
                   className="duo-btn duo-btn-orange w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
                   <Sparkles className="w-4 h-4 text-white" />
-                  <span>ランク判定戦を始める (AI診断)</span>
+                  <span>実力診断テストを受ける (ソロ)</span>
                   <ArrowRight className="w-4 h-4 text-white" />
                 </button>
               </div>
@@ -557,6 +441,71 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
                   </div>
                 </button>
               </div>
+            </div>
+
+            {/* Matchmaking Type (Public vs Room Code) */}
+            <div className="space-y-2">
+              <div className="text-xs font-black text-[#777777] uppercase tracking-wider">
+                マッチング方式
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.playTap();
+                    setMatchType('public');
+                  }}
+                  className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                    matchType === 'public'
+                      ? 'bg-[#EBF7FD] border-[#1CB0F6]'
+                      : 'bg-white border-[#E5E5E5]'
+                  }`}
+                >
+                  <div className="text-xs font-black text-[#3C3C3C]">🌐 公募マッチング</div>
+                  <div className="text-[10px] font-bold text-[#777777]">だれでもマッチ</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.playTap();
+                    setMatchType('room');
+                  }}
+                  className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                    matchType === 'room'
+                      ? 'bg-[#FEF3C7] border-[#F59E0B]'
+                      : 'bg-white border-[#E5E5E5]'
+                  }`}
+                >
+                  <div className="text-xs font-black text-[#3C3C3C]">🔑 合言葉ルーム</div>
+                  <div className="text-[10px] font-bold text-[#777777]">友達・別タブ対戦</div>
+                </button>
+              </div>
+
+              {matchType === 'room' && (
+                <div className="p-3.5 rounded-2xl bg-[#FFFBEB] border-2 border-[#FDE68A] space-y-2 animate-in fade-in duration-150">
+                  <div className="text-xs font-black text-[#92400E] flex items-center justify-between">
+                    <span>対戦の合言葉 (ルームコード)</span>
+                    <button
+                      type="button"
+                      onClick={handleOpenDuplicateTab}
+                      className="text-[10px] font-black text-[#1CB0F6] bg-white px-2 py-1 rounded-lg border border-[#BDE3F8] hover:bg-[#EBF7FD] flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>別タブを開いて対戦テスト</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={8}
+                    placeholder="合言葉を入力 (例: 777 や TEST)"
+                    value={roomCode}
+                    onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white border-2 border-[#FCD34D] text-sm font-black uppercase text-[#3C3C3C] tracking-wider"
+                  />
+                  <p className="text-[10px] font-bold text-[#B45309]">
+                    ※同じ合言葉を入力したプレイヤー同士、または別タブと確実に即マッチングします！
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* 2vs2 Party Feature */}
