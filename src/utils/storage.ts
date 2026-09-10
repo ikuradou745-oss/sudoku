@@ -39,9 +39,15 @@ export function getStoredUserStats(): UserStats {
         placementDone: !!parsed.placementDone,
         rankedWins: parsed.rankedWins || 0,
         rankedLosses: parsed.rankedLosses || 0,
-        equippedMainGoods: parsed.equippedMainGoods || 'pencil',
-        equippedSubGoods: parsed.equippedSubGoods || 'eraser',
-        unlockedGoods: Array.isArray(parsed.unlockedGoods) ? parsed.unlockedGoods : ['pencil', 'eraser'],
+        equippedMainGoods: parsed.equippedMainGoods === 'marker' ? 'marker' : 'pencil',
+        equippedSubGoods: parsed.equippedSubGoods === 'ruler' ? 'ruler' : 'eraser',
+        unlockedGoods: Array.isArray(parsed.unlockedGoods) 
+          ? parsed.unlockedGoods.filter((id: string) => id !== 'ramoHat') 
+          : ['pencil', 'eraser'],
+        claimedBonusCodes: Array.isArray(parsed.claimedBonusCodes) 
+          ? parsed.claimedBonusCodes.filter((c: string) => c !== 'ramo_hat_secret') 
+          : [],
+        hasOpenedRewardModal: !!parsed.hasOpenedRewardModal,
       };
       // Ensure userId is saved
       if (!parsed.userId) {
@@ -70,6 +76,8 @@ export function getStoredUserStats(): UserStats {
     equippedMainGoods: 'pencil',
     equippedSubGoods: 'eraser',
     unlockedGoods: ['pencil', 'eraser'],
+    claimedBonusCodes: [],
+    hasOpenedRewardModal: false,
   };
   saveUserStats(initialStats);
   return initialStats;

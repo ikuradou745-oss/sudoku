@@ -3,11 +3,10 @@ import { HomeScreen } from './components/HomeScreen';
 import { ModifierModal } from './components/ModifierModal';
 import { ProfileModal } from './components/ProfileModal';
 import { CommunityModal } from './components/CommunityModal';
-import { RankedLobbyModal } from './components/RankedLobbyModal';
-import { RankedQuizSession } from './components/RankedQuizSession';
 import { QuizSession } from './components/QuizSession';
 import { GoodsModal } from './components/GoodsModal';
-import { UserStats, Modifier, Question, RankedMatchSession, MainGoodsId, SubGoodsId, GoodsItem } from './types';
+import { RewardModal } from './components/RewardModal';
+import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
   getStoredUserStats, 
@@ -17,8 +16,9 @@ import {
 } from './utils/storage';
 import { realtimePresence } from './utils/multiplayer';
 import { audio } from './utils/audio';
+import { fetchAiQuestion } from './utils/aiQuestionClient';
 
-type AppPhase = 'home' | 'quiz' | 'ranked';
+type AppPhase = 'home' | 'quiz';
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('home');
@@ -29,17 +29,13 @@ export function App() {
   const [showModifierModal, setShowModifierModal] = useState<boolean>(false);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showCommunityModal, setShowCommunityModal] = useState<boolean>(false);
-  const [showRankedLobbyModal, setShowRankedLobbyModal] = useState<boolean>(false);
   const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
+  const [showRewardModal, setShowRewardModal] = useState<boolean>(false);
 
   // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [activeModifiers, setActiveModifiers] = useState<Modifier[]>([]);
-
-  // Ranked Match State
-  const [activeRankedSession, setActiveRankedSession] = useState<RankedMatchSession | null>(null);
-  const [isPlacementMatch, setIsPlacementMatch] = useState<boolean>(false);
 
   // Identify user with realtime service
   useEffect(() => {
@@ -76,8 +72,8 @@ export function App() {
     setShowModifierModal(true);
   };
 
-  // 4. Start Practice Mode with selected modifiers
-  const handleStartPracticeWithModifiers = (selectedMods: Modifier[]) => {
+  // 4. Start Practice Mode with selected modifiers (AI question triggers occasionally)
+  const handleStartPracticeWithModifiers = async (selectedMods: Modifier[]) => {
     setShowModifierModal(false);
     setActiveModifiers(selectedMods);
     setQuizMode('practice');
@@ -95,24 +91,41 @@ export function App() {
       pool = [...longQuestions, ...pool];
     }
 
-    // Shuffle and pick 5 questions
-    const selectedQuestions = pool.sort(() => Math.random() - 0.5).slice(0, 5);
+    // Shuffle and pick 10 questions for normal lesson
+    const selectedQuestions = pool.sort(() => Math.random() - 0.5).slice(0, 10);
+
+    // AI Question: "これはたまーに出るもので、AIが問題を考えてくれます" (~40% chance)
+    if (Math.random() < 0.45) {
+      try {
+        const aiQ = await fetchAiQuestion();
+        if (aiQ) {
+          const replaceIdx = Math.floor(Math.random() * 6) + 2; // index between 2 and 7
+          if (selectedQuestions.length > replaceIdx) {
+            selectedQuestions[replaceIdx] = aiQ;
+          }
+        }
+      } catch {
+        // Ignore fallback already handles it
+      }
+    }
 
     setQuizQuestions(selectedQuestions);
     setPhase('quiz');
   };
 
-  // 5. Start Daily Set (5 questions, fixed 15⚡️)
+  // 5. Start Daily Set (5 questions, fixed 15⚡️, includes matching)
   const handleStartDaily = () => {
     setQuizMode('daily');
     setActiveModifiers([]);
 
-    // Select 5 varied questions for the daily set
-    const e5 = QUESTION_BANK.filter((q) => q.difficulty === '5kyu').sort(() => Math.random() - 0.5).slice(0, 2);
-    const e4 = QUESTION_BANK.filter((q) => q.difficulty === '4kyu').sort(() => Math.random() - 0.5).slice(0, 2);
+    // Select 5 varied questions for the daily set including matching questions
+    const matchingPool = QUESTION_BANK.filter((q) => q.type === 'matching').sort(() => Math.random() - 0.5);
+    const e5 = QUESTION_BANK.filter((q) => q.difficulty === '5kyu' && q.type !== 'matching').sort(() => Math.random() - 0.5).slice(0, 2);
+    const e4 = QUESTION_BANK.filter((q) => q.difficulty === '4kyu' && q.type !== 'matching').sort(() => Math.random() - 0.5).slice(0, 1);
     const long = QUESTION_BANK.filter((q) => q.difficulty === 'long').sort(() => Math.random() - 0.5).slice(0, 1);
+    const match = matchingPool.slice(0, 1);
 
-    const dailySet = [...e5, ...e4, ...long].sort(() => Math.random() - 0.5);
+    const dailySet = [...e5, ...e4, ...long, ...match].sort(() => Math.random() - 0.5);
     setQuizQuestions(dailySet);
     setPhase('quiz');
   };
@@ -143,28 +156,6 @@ export function App() {
         };
       });
     }
-    setPhase('home');
-  };
-
-  // 7. Start Ranked Match
-  const handleStartRankedMatch = (session: RankedMatchSession, isPlacement: boolean) => {
-    setShowRankedLobbyModal(false);
-    setActiveRankedSession(session);
-    setIsPlacementMatch(isPlacement);
-    setPhase('ranked');
-  };
-
-  // 8. Finish Ranked Match (Rating Update & Sync)
-  const handleFinishRankedMatch = (updatedFields: Partial<UserStats>) => {
-    updateStats((prev) => ({
-      ...prev,
-      ...updatedFields,
-      completedSessions: prev.completedSessions + 1,
-    }));
-  };
-
-  const handleExitRanked = () => {
-    setActiveRankedSession(null);
     setPhase('home');
   };
 
@@ -215,6 +206,23 @@ export function App() {
     });
   };
 
+  const handleOpenRewardModal = () => {
+    if (!stats.hasOpenedRewardModal) {
+      updateStats((prev) => ({
+        ...prev,
+        hasOpenedRewardModal: true,
+      }));
+    }
+    setShowRewardModal(true);
+  };
+
+  const handleUpdateStatsFromReward = (partial: Partial<UserStats>) => {
+    updateStats((prev) => ({
+      ...prev,
+      ...partial,
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col justify-between selection:bg-[#58CC02] selection:text-white">
       {/* Main View Area */}
@@ -224,9 +232,9 @@ export function App() {
             stats={stats}
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
-            onStartRanked={() => setShowRankedLobbyModal(true)}
             onOpenCommunity={() => setShowCommunityModal(true)}
             onOpenGoods={() => setShowGoodsModal(true)}
+            onOpenRewards={handleOpenRewardModal}
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             soundEnabled={soundEnabled}
@@ -241,16 +249,6 @@ export function App() {
             stats={stats}
             onFinish={handleQuizFinish}
             onExit={handleExitQuiz}
-          />
-        )}
-
-        {phase === 'ranked' && activeRankedSession && (
-          <RankedQuizSession
-            stats={stats}
-            session={activeRankedSession}
-            isPlacement={isPlacementMatch}
-            onFinishMatch={handleFinishRankedMatch}
-            onExit={handleExitRanked}
           />
         )}
 
@@ -281,15 +279,6 @@ export function App() {
           />
         )}
 
-        {/* Ranked Match Lobby & Matchmaking Modal */}
-        {showRankedLobbyModal && (
-          <RankedLobbyModal
-            stats={stats}
-            onStartMatch={handleStartRankedMatch}
-            onClose={() => setShowRankedLobbyModal(false)}
-          />
-        )}
-
         {/* 🎒 Goods Equipment & Shop Modal */}
         {showGoodsModal && (
           <GoodsModal
@@ -299,12 +288,21 @@ export function App() {
             onClose={() => setShowGoodsModal(false)}
           />
         )}
+
+        {/* ⭐️ Reward & Codes Modal */}
+        {showRewardModal && (
+          <RewardModal
+            stats={stats}
+            onUpdateStats={handleUpdateStatsFromReward}
+            onClose={() => setShowRewardModal(false)}
+          />
+        )}
       </main>
 
       {/* Subtle Footer */}
       {phase === 'home' && (
         <footer className="py-4 text-center text-xs font-bold text-[#AFAFAF] border-t border-[#F0F0F0]">
-          <span>うおリンゴ (Uolingo) © 英語学習・ランクマッチ</span>
+          <span>うおリンゴ (Uolingo) © 英語学習</span>
         </footer>
       )}
     </div>

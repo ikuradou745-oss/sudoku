@@ -21,6 +21,7 @@ import { audio } from '../utils/audio';
 import { AdModal } from './AdModal';
 import { GoodsHUD } from './GoodsHUD';
 import { PencilHintCard, MarkerOverlay, RulerGuideCard } from './GoodsVisualEffects';
+import { DotConnectQuiz } from './DotConnectQuiz';
 
 interface QuizSessionProps {
   mode: 'practice' | 'daily';
@@ -49,7 +50,7 @@ export function QuizSession({
   const isTimeLimit = modifiers.some((m) => m.id === 'timeLimit' && m.active);
 
   const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [lives, setLives] = useState<number>(isHardcore ? 1 : 5);
+  const [lives, setLives] = useState<number>(isHardcore ? 1 : 3);
   const [mistakes, setMistakes] = useState<number>(0);
   const [hasUsedRevive, setHasUsedRevive] = useState<boolean>(false);
   const [showAdModal, setShowAdModal] = useState<boolean>(false);
@@ -80,6 +81,7 @@ export function QuizSession({
   const [pencilActive, setPencilActive] = useState<boolean>(false);
   const [eraserActive, setEraserActive] = useState<boolean>(false);
   const [hiddenChoices, setHiddenChoices] = useState<string[]>([]);
+  const [shuffledChoices, setShuffledChoices] = useState<string[]>([]);
   // Random question index for ruler (e.g. index 1 or 2)
   const [rulerTargetIndex] = useState<number>(() => {
     if (questions.length <= 1) return 0;
@@ -104,6 +106,18 @@ export function QuizSession({
 
     if (currentIndex === rulerTargetIndex) {
       setRulerTriggered(true);
+    }
+
+    // Completely randomize choices with Fisher-Yates so answer is never always button 1!
+    if (currentQ.choices && currentQ.choices.length > 0) {
+      const choicesCopy = [...currentQ.choices];
+      for (let i = choicesCopy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [choicesCopy[i], choicesCopy[j]] = [choicesCopy[j], choicesCopy[i]];
+      }
+      setShuffledChoices(choicesCopy);
+    } else {
+      setShuffledChoices([]);
     }
 
     if (currentQ.type === 'order' && currentQ.wordOptions) {
@@ -145,10 +159,43 @@ export function QuizSession({
         }
       }
       setAvailableWords(tempAvail);
+    } else if (shuffledChoices.length > 0) {
+      const wrong = shuffledChoices.filter((c) => c !== currentQ.correctAnswer);
+      const hideCount = Math.max(1, Math.floor(wrong.length / 2));
+      setHiddenChoices(wrong.slice(0, hideCount));
     } else if (currentQ.choices) {
       const wrong = currentQ.choices.filter((c) => c !== currentQ.correctAnswer);
       const hideCount = Math.max(1, Math.floor(wrong.length / 2));
       setHiddenChoices(wrong.slice(0, hideCount));
+    }
+  };
+
+  // Handle Dot Connect (Matching) Result
+  const handleMatchingResult = (allMatched: boolean) => {
+    if (isAnswerChecked) return;
+
+    if (allMatched) {
+      audio.playCorrect();
+      setIsCorrect(true);
+      setIsAnswerChecked(true);
+
+      // Charge equipped stationery
+      if (equippedMain === 'pencil') {
+        setMainCharge((prev) => Math.min(100, prev + 25));
+      }
+      if (equippedSub === 'eraser') {
+        setSubCharge((prev) => Math.min(100, prev + 25));
+      }
+    } else {
+      // Check Marker Pen ability: Invalidate miss once and retry
+      if (equippedMain === 'marker' && !markerUsed) {
+        audio.playTap();
+        setMarkerUsed(true);
+        setShowMarkerOverlay(true);
+        return;
+      }
+
+      handleMistake();
     }
   };
 
@@ -280,7 +327,7 @@ export function QuizSession({
       return dailyCalc.totalReward;
     }
 
-    const base = 5;
+    const base = mode === 'practice' ? 10 : 5;
     const activeMods = modifiers.filter((m) => m.active);
     const totalBonusPercent = activeMods.reduce((acc, m) => acc + m.bonusPercent, 0);
     const modMultiplier = 1 + totalBonusPercent / 100;
@@ -596,18 +643,27 @@ export function QuizSession({
         className="duo-card p-6 sm:p-8 bg-white mb-6"
       >
         {/* Question Type & (Optional) Audio Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="px-3 py-1 rounded-full text-xs font-black bg-[#E5E5E5] text-[#4B4B4B]">
               {currentQ.type === 'order' && '自分で文を組み立てる (語順並べ替え)'}
               {currentQ.type === 'blank' && '空欄補充 (穴埋め)'}
               {currentQ.type === 'translate' && '英単語・意味選択'}
               {currentQ.type === 'dialogue' && '会話の応答'}
+              {currentQ.type === 'matching' && '🔗 点繋ぎ (ペアマッチング)'}
             </span>
+
+            {/* AI Generated Question Badge */}
+            {currentQ.isAiGenerated && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r from-[#FAF5FF] to-[#F3E8FF] border border-[#D8B4FE] text-[#9333EA] shadow-2xs">
+                <Sparkles className="w-3.5 h-3.5 text-[#9333EA]" />
+                <span>AI問題 (Gemini)</span>
+              </span>
+            )}
           </div>
 
-          {/* Do NOT show audio listening button for 'order' questions as requested */}
-          {currentQ.type !== 'order' && (
+          {/* Do NOT show audio listening button for 'order' and 'matching' */}
+          {currentQ.type !== 'order' && currentQ.type !== 'matching' && (
             <button
               onClick={() => {
                 audio.playTap();
@@ -635,10 +691,21 @@ export function QuizSession({
         </h2>
 
         {/* Prompt Sentence if exists */}
-        {currentQ.promptSentence && currentQ.type !== 'dialogue' && (
+        {currentQ.promptSentence && currentQ.type !== 'dialogue' && currentQ.type !== 'matching' && (
           <div className="p-4 bg-[#F7F7F7] border-2 border-[#E5E5E5] rounded-2xl text-lg font-black text-[#3C3C3C] mb-6 font-mono-code text-center">
             {currentQ.promptSentence}
           </div>
+        )}
+
+        {/* --- QUESTION TYPE: MATCHING (点繋ぎ) --- */}
+        {currentQ.type === 'matching' && (
+          <DotConnectQuiz
+            matchingPairs={currentQ.matchingPairs || []}
+            isAnswerChecked={isAnswerChecked}
+            isCorrect={isCorrect}
+            onCheckAnswer={handleMatchingResult}
+            disabled={isGameOver || isCleared}
+          />
         )}
 
         {/* --- QUESTION TYPE: ORDER (自分で文を組み立てる) --- */}
@@ -681,9 +748,9 @@ export function QuizSession({
         )}
 
         {/* --- QUESTION TYPE: MULTIPLE CHOICE (blank, translate, dialogue) --- */}
-        {currentQ.type !== 'order' && currentQ.choices && (
+        {currentQ.type !== 'order' && currentQ.type !== 'matching' && shuffledChoices.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {currentQ.choices.map((choice, idx) => {
+            {shuffledChoices.map((choice, idx) => {
               const isSelected = selectedAnswer === choice;
               const isHidden = hiddenChoices.includes(choice);
 
@@ -722,7 +789,7 @@ export function QuizSession({
                     setSelectedAnswer(choice);
                   }}
                   disabled={isAnswerChecked}
-                  className={`duo-btn ${choiceStyle} p-4 rounded-2xl text-left font-black text-base flex items-center justify-between transition-all`}
+                  className={`duo-btn ${choiceStyle} p-4 rounded-2xl text-left font-black text-base flex items-center justify-between transition-all cursor-pointer`}
                 >
                   <span>{choice}</span>
                   <span className="w-6 h-6 rounded-lg bg-white/60 border border-[#E5E5E5] flex items-center justify-center text-xs font-black text-[#AFAFAF]">
@@ -780,23 +847,29 @@ export function QuizSession({
           {/* Action Button: Check OR Next */}
           <div className="w-full sm:w-auto sm:min-w-[160px] sm:ml-auto">
             {!isAnswerChecked ? (
-              <button
-                id="check-answer-button"
-                onClick={handleCheckAnswer}
-                disabled={
-                  currentQ.type === 'order'
-                    ? selectedWords.length === 0
-                    : !selectedAnswer
-                }
-                className="duo-btn duo-btn-green w-full h-12 rounded-2xl text-base font-black flex items-center justify-center disabled:opacity-40"
-              >
-                チェック
-              </button>
+              currentQ.type === 'matching' ? (
+                <div className="text-xs font-bold text-[#777777] text-center sm:text-right py-2">
+                  ※ 上の「答え合わせ」ボタンを押してください
+                </div>
+              ) : (
+                <button
+                  id="check-answer-button"
+                  onClick={handleCheckAnswer}
+                  disabled={
+                    currentQ.type === 'order'
+                      ? selectedWords.length === 0
+                      : !selectedAnswer
+                  }
+                  className="duo-btn duo-btn-green w-full h-12 rounded-2xl text-base font-black flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                >
+                  チェック
+                </button>
+              )
             ) : (
               <button
                 id="next-question-button"
                 onClick={handleNext}
-                className={`duo-btn w-full h-12 rounded-2xl text-base font-black flex items-center justify-center gap-2 ${
+                className={`duo-btn w-full h-12 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer ${
                   isCorrect ? 'duo-btn-green' : 'duo-btn-red'
                 }`}
               >

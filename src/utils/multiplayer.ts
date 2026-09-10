@@ -48,6 +48,15 @@ export type RealtimeEvent =
       winnerIds?: string[];
     }
   | { type: 'PARTY_UPDATED'; party: PartyInfo | null }
+  | { 
+      type: 'REWARDS_LIKES_UPDATED'; 
+      likes: number; 
+      currentCode: string; 
+      nextCode: string; 
+      nextThreshold: number; 
+      remainingLikes: number; 
+      bonusNum: number; 
+    }
   | { type: 'CONNECTION_STATUS'; connected: boolean; broker: string }
   | { type: 'ERROR'; message: string };
 

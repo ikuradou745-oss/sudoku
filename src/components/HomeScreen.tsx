@@ -9,8 +9,8 @@ import {
   ArrowRight,
   Settings,
   User,
-  Trophy,
-  Flame
+  Flame,
+  Star
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { 
@@ -28,9 +28,9 @@ interface HomeScreenProps {
   stats: UserStats;
   onStartPractice: () => void;
   onStartDaily: () => void;
-  onStartRanked: () => void;
   onOpenCommunity: () => void;
   onOpenGoods: () => void;
+  onOpenRewards: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
   soundEnabled: boolean;
@@ -40,9 +40,9 @@ export function HomeScreen({
   stats,
   onStartPractice,
   onStartDaily,
-  onStartRanked,
   onOpenCommunity,
   onOpenGoods,
+  onOpenRewards,
   onToggleSound,
   onOpenProfile,
   soundEnabled,
@@ -154,6 +154,24 @@ export function HomeScreen({
               )}
             </div>
             <Settings className="w-4 h-4 text-[#AFAFAF] group-hover:text-[#1CB0F6] group-hover:rotate-45 transition-all" />
+          </button>
+
+          {/* ⭐️ Reward Button (⭐️マーク with ! badge until opened) */}
+          <button
+            id="reward-btn"
+            onClick={() => {
+              audio.playTap();
+              onOpenRewards();
+            }}
+            className="relative w-10 h-10 rounded-2xl bg-[#FFFBEB] hover:bg-[#FEF3C7] border-2 border-[#FDE68A] hover:border-[#F59E0B] flex items-center justify-center transition-all cursor-pointer shadow-xs active:scale-95 group"
+            title="⭐️ 報酬 & スペシャルリワード"
+          >
+            <Star className="w-5 h-5 text-[#F59E0B] fill-[#F59E0B] group-hover:scale-110 transition-transform" />
+            {!stats.hasOpenedRewardModal && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF4B4B] border border-white text-[10px] font-black text-white flex items-center justify-center animate-bounce shadow-2xs">
+                !
+              </span>
+            )}
           </button>
 
           {/* 👥 Community & Online Members Button */}
@@ -296,42 +314,7 @@ export function HomeScreen({
           </div>
         </button>
 
-        {/* 3. ランクマッチ (Ranked Match 1vs1 & 2vs2) */}
-        <button
-          id="start-ranked-btn"
-          onClick={() => {
-            audio.playTap();
-            onStartRanked();
-          }}
-          className="duo-btn duo-btn-red w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
-        >
-          <div className="flex items-center gap-3.5 text-left">
-            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
-              <Trophy className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="text-lg font-black text-white flex items-center gap-2">
-                <span>ランクマッチ</span>
-                <span className="text-[10px] font-black bg-white/30 text-white px-1.5 py-0.2 rounded-md">
-                  1vs1・2vs2
-                </span>
-              </div>
-              <div className="text-xs font-bold text-white/90">
-                レート対戦・昇格戦・オンライン真剣勝負！
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full flex items-center gap-1">
-              <span>{userRank.icon}</span>
-              <span>{userRank.name}</span>
-            </span>
-            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
-          </div>
-        </button>
-
-        {/* 4. グッズ (えんぴつ・マーカー・消しゴム・ものさし) */}
+        {/* 3. グッズ (ホーム画面はシンプルに「グッズ」、紫ボタン) */}
         <button
           id="open-goods-btn"
           onClick={() => {
@@ -345,27 +328,18 @@ export function HomeScreen({
               🎒
             </div>
             <div>
-              <div className="text-lg font-black text-white flex items-center gap-2">
-                <span>グッズ</span>
-                <span className="text-[10px] font-black bg-white/30 text-white px-2 py-0.5 rounded-md">
-                  メイン & サブ装備
-                </span>
+              <div className="text-xl font-black text-white">
+                グッズ
               </div>
-              <div className="text-xs font-bold text-white/90 flex items-center gap-2">
-                <span>
-                  装備中: ✏️{stats.equippedMainGoods === 'marker' ? 'マーカーペン' : 'えんぴつ'}
-                </span>
-                <span>/</span>
-                <span>
-                  🧹{stats.equippedSubGoods === 'ruler' ? 'ものさし' : '消しゴム'}
-                </span>
+              <div className="text-xs font-bold text-white/90">
+                装備中のえんぴつ・マーカー・消しゴム・ものさし
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
-              能力設定・ショップ
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black bg-white/25 text-white px-3 py-1 rounded-full">
+              装備・ショップ
             </span>
             <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>

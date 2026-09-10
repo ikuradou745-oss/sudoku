@@ -52,6 +52,15 @@
   background-color: #FF5A5A;
 }
 
+.duo-btn-purple {
+  background-color: #A855F7;
+  border-bottom-color: #7E22CE;
+  color: #FFFFFF;
+}
+.duo-btn-purple:hover:not(:disabled) {
+  background-color: #B568F8;
+}
+
 .duo-btn-gray {
   background-color: #FFFFFF;
   border: 2px solid #E5E5E5;

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
 
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
 
@@ -93,6 +94,55 @@ const activeParties = new Map<string, PartyInfo>();
 const activeRankedMatches = new Map<string, RankedMatchSession>();
 
 const PRESENCE_CACHE_FILE = path.join(process.cwd(), 'presence_cache.json');
+const LIKES_CACHE_FILE = path.join(process.cwd(), 'likes_cache.json');
+
+let globalLikes = 180;
+
+function getRewardCodeInfo(likes: number) {
+  if (likes < 250) {
+    return {
+      currentCode: 'bonus1',
+      nextCode: 'bonus2',
+      nextThreshold: 250,
+      remainingLikes: Math.max(0, 250 - likes),
+      bonusNum: 1,
+    };
+  }
+  const extra = likes - 250;
+  const bonusNum = 2 + Math.floor(extra / 100);
+  const nextThreshold = 250 + (bonusNum - 1) * 100;
+  return {
+    currentCode: `bonus${bonusNum}`,
+    nextCode: `bonus${bonusNum + 1}`,
+    nextThreshold,
+    remainingLikes: Math.max(0, nextThreshold - likes),
+    bonusNum,
+  };
+}
+
+function loadLikesCache() {
+  try {
+    if (fs.existsSync(LIKES_CACHE_FILE)) {
+      const raw = fs.readFileSync(LIKES_CACHE_FILE, 'utf8');
+      const data = JSON.parse(raw);
+      if (typeof data.likes === 'number' && !isNaN(data.likes)) {
+        globalLikes = Math.max(0, data.likes);
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+function saveLikesCache() {
+  try {
+    fs.writeFileSync(LIKES_CACHE_FILE, JSON.stringify({ likes: globalLikes }, null, 2), 'utf8');
+  } catch {
+    // Ignore
+  }
+}
+
+loadLikesCache();
 function loadPresenceCache() {
   try {
     if (fs.existsSync(PRESENCE_CACHE_FILE)) {
@@ -505,6 +555,136 @@ async function startServer() {
 
   app.get('/api/presence/members', (req, res) => {
     res.json(getPresenceSnapshot());
+  });
+
+  // ==========================================
+  // Gemini AI Question Generation Endpoint
+  // ==========================================
+  app.post('/api/ai/generate-question', async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ error: 'GEMINI_API_KEY not configured' });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const prompt = `あなたは英検4級〜5級向けの英語学習アプリ「うおリンゴ」の専属AI問題作成者です。
+小学生や中学生がワクワクするような、楽しくて身になるオリジナル英語クイズを1問だけ作成してください。
+
+形式は以下の4種類の中からランダムに1つ選んで作成してください：
+1. 'matching' (点繋ぎ問題: 感情、日常動作、天気、動物、文房具などの英単語と、対応する絵文字や日本語を4組)
+2. 'blank' (空欄穴埋め選択問題: choicesに選択肢4つ、正解はランダムな位置)
+3. 'order' (語順並べ替え問題: wordOptionsに5〜6単語)
+4. 'translate' (単語またはフレーズの意味選択: choicesに選択肢4つ)
+
+必ず以下のJSON形式のみを返してください。Markdownコードブロックなどは付けず、純粋なJSONオブジェクトのみを出力してください：
+{
+  "id": "ai_gen_${Date.now()}",
+  "type": "matching" | "blank" | "order" | "translate",
+  "difficulty": "5kyu",
+  "japanese": "問題文または日本語訳（点繋ぎなら「〇〇を線で繋ごう！」）",
+  "english": "模範解答の英文（matchingなら概要）",
+  "promptSentence": "空欄補充の場合の英文（例: I ____ my homework every day. 空欄は____）",
+  "choices": ["choice1", "choice2", "choice3", "choice4"],
+  "correctAnswer": "正解の文字列（matchingなら'all'）",
+  "wordOptions": ["word1", "word2", "word3", "word4", "word5"],
+  "matchingPairs": [
+    { "id": "p1", "left": "happy", "right": "☺️ うれしい" },
+    { "id": "p2", "left": "sad", "right": "😢 かなしい" },
+    { "id": "p3", "left": "good", "right": "👍 よい" },
+    { "id": "p4", "left": "angry", "right": "😡 おこった" }
+  ],
+  "explanation": "子供にもわかりやすい丁寧で明るい解説",
+  "isAiGenerated": true
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const text = response.text ? response.text.trim() : '';
+      if (!text) {
+        return res.status(500).json({ error: 'Empty response from Gemini' });
+      }
+
+      const question = JSON.parse(text);
+      question.isAiGenerated = true;
+      if (!question.id) question.id = `ai_gen_${Date.now()}`;
+      return res.json({ question });
+    } catch (err: any) {
+      console.error('[AI Question Generation Error]:', err?.message || err);
+      return res.status(500).json({ error: 'Failed to generate question with AI' });
+    }
+  });
+
+  // ==========================================
+  // Community Likes & Rewards REST Endpoints
+  // ==========================================
+  app.get('/api/rewards/status', (req, res) => {
+    const info = getRewardCodeInfo(globalLikes);
+    res.json({
+      success: true,
+      likes: globalLikes,
+      ...info,
+    });
+  });
+
+  app.post('/api/rewards/like', (req, res) => {
+    const amount = typeof req.body?.count === 'number' && req.body.count > 0 ? Math.min(10, req.body.count) : 1;
+    globalLikes += amount;
+    saveLikesCache();
+    const info = getRewardCodeInfo(globalLikes);
+
+    broadcastEvent({
+      type: 'REWARDS_LIKES_UPDATED',
+      likes: globalLikes,
+      ...info,
+    });
+
+    res.json({
+      success: true,
+      likes: globalLikes,
+      ...info,
+    });
+  });
+
+  app.post('/api/rewards/claim', (req, res) => {
+    const inputCode = String(req.body?.code || '').trim().toLowerCase();
+    const info = getRewardCodeInfo(globalLikes);
+
+    if (!inputCode) {
+      return res.status(400).json({ error: 'コードを入力してください' });
+    }
+
+    // Check if input matches current code or previous valid bonus codes
+    const currentBonusNum = info.bonusNum;
+    let isValidCode = false;
+    let matchedBonus = 0;
+
+    for (let i = 1; i <= currentBonusNum; i++) {
+      if (inputCode === `bonus${i}`) {
+        isValidCode = true;
+        matchedBonus = i;
+        break;
+      }
+    }
+
+    if (!isValidCode) {
+      return res.status(400).json({ 
+        error: `コード「${inputCode}」は無効です。現在の最新コードは「${info.currentCode}」です。` 
+      });
+    }
+
+    return res.json({
+      success: true,
+      code: `bonus${matchedBonus}`,
+      rewardEnergy: 100,
+      message: `🎉 コード「bonus${matchedBonus}」の報酬 100⚡️ を獲得しました！`,
+    });
   });
 
   // ==========================================

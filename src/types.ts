@@ -1,6 +1,13 @@
-export type QuestionType = 'order' | 'blank' | 'translate' | 'dialogue';
+export type QuestionType = 'order' | 'blank' | 'translate' | 'dialogue' | 'matching';
 
 export type QuestionDifficulty = '5kyu' | '4kyu' | 'long';
+
+export interface MatchingPair {
+  id: string;
+  left: string; // e.g. "happy" or English word
+  right: string; // e.g. "☺️ うれしい" or Japanese/Emoji/Meaning
+  leftAudio?: string;
+}
 
 export interface Question {
   id: string;
@@ -17,6 +24,10 @@ export interface Question {
   correctAnswer: string;
   explanation?: string;
   audioPrompt?: string;
+  // For 'matching' (点繋ぎ)
+  matchingPairs?: MatchingPair[];
+  // For AI questions
+  isAiGenerated?: boolean;
 }
 
 export interface Modifier {
@@ -65,6 +76,9 @@ export interface UserStats {
   equippedMainGoods?: MainGoodsId;
   equippedSubGoods?: SubGoodsId;
   unlockedGoods?: string[];
+  // Rewards & Codes
+  claimedBonusCodes?: string[];
+  hasOpenedRewardModal?: boolean;
 }
 
 export interface OnlineUserPresence {
