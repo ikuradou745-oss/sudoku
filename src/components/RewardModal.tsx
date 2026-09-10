@@ -39,8 +39,8 @@ export function RewardModal({
     likes: 180,
     currentCode: 'bonus1',
     nextCode: 'bonus2',
-    nextThreshold: 250,
-    remainingLikes: 70,
+    nextThreshold: 1000,
+    remainingLikes: 820,
     bonusNum: 1,
   });
 
@@ -89,8 +89,14 @@ export function RewardModal({
       }
     });
 
+    // Periodic online sync polling as live fallback
+    const pollTimer = setInterval(() => {
+      fetchStatus();
+    }, 3000);
+
     return () => {
       unsubscribe();
+      clearInterval(pollTimer);
     };
   }, [fetchStatus]);
 
@@ -109,18 +115,18 @@ export function RewardModal({
     // Optimistically update local count
     setRewardStatus((prev) => {
       const newLikes = prev.likes + 1;
+      const THRESHOLD = 1000;
       let currentCode = 'bonus1';
       let nextCode = 'bonus2';
-      let nextThreshold = 250;
-      let remaining = Math.max(0, 250 - newLikes);
+      let nextThreshold = THRESHOLD;
+      let remaining = Math.max(0, THRESHOLD - newLikes);
       let bonusNum = 1;
 
-      if (newLikes >= 250) {
-        const extra = newLikes - 250;
-        bonusNum = 2 + Math.floor(extra / 100);
+      if (newLikes >= THRESHOLD) {
+        bonusNum = 1 + Math.floor(newLikes / THRESHOLD);
         currentCode = `bonus${bonusNum}`;
         nextCode = `bonus${bonusNum + 1}`;
-        nextThreshold = 250 + (bonusNum - 1) * 100;
+        nextThreshold = bonusNum * THRESHOLD;
         remaining = Math.max(0, nextThreshold - newLikes);
       }
 
@@ -230,8 +236,9 @@ export function RewardModal({
     }
   };
 
-  // Calculate progress percentage to next code
-  const currentTierStart = rewardStatus.bonusNum === 1 ? 0 : 250 + (rewardStatus.bonusNum - 2) * 100;
+  // Calculate progress percentage to next code (1000 likes per tier)
+  const THRESHOLD_STEP = 1000;
+  const currentTierStart = (rewardStatus.bonusNum - 1) * THRESHOLD_STEP;
   const currentTierTarget = rewardStatus.nextThreshold;
   const tierTotal = currentTierTarget - currentTierStart;
   const tierProgress = Math.min(tierTotal, Math.max(0, rewardStatus.likes - currentTierStart));
@@ -280,8 +287,9 @@ export function RewardModal({
                 <span className="text-lg">💖</span>
                 <span className="text-sm font-black text-[#713F12]">みんなの「いいね」総数</span>
               </div>
-              <span className="text-[11px] font-bold bg-[#FEF9C3] text-[#854D0E] px-2 py-0.5 rounded-full border border-[#FDE047]">
-                オンラインリアルタイム保存
+              <span className="text-[11px] font-bold bg-[#ECFDF5] text-[#047857] px-2.5 py-0.5 rounded-full border border-[#A7F3D0] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-ping" />
+                オンライン同期中
               </span>
             </div>
 
@@ -396,7 +404,7 @@ export function RewardModal({
             </div>
 
             <p className="text-[11px] text-[#A16207] mt-2.5">
-              ※ いいねが250で「bonus2」に更新され、以降は100いいね変わるごとに次のコード（bonus3, bonus4...）へ更新されます。
+              ※ いいねが1,000で「bonus2」に更新され、以降は1,000いいね変わるごとに次のコード（bonus3, bonus4...）へ更新されます。
             </p>
           </div>
 

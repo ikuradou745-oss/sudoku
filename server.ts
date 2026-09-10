@@ -99,18 +99,18 @@ const LIKES_CACHE_FILE = path.join(process.cwd(), 'likes_cache.json');
 let globalLikes = 180;
 
 function getRewardCodeInfo(likes: number) {
-  if (likes < 250) {
+  const THRESHOLD = 1000;
+  if (likes < THRESHOLD) {
     return {
       currentCode: 'bonus1',
       nextCode: 'bonus2',
-      nextThreshold: 250,
-      remainingLikes: Math.max(0, 250 - likes),
+      nextThreshold: THRESHOLD,
+      remainingLikes: Math.max(0, THRESHOLD - likes),
       bonusNum: 1,
     };
   }
-  const extra = likes - 250;
-  const bonusNum = 2 + Math.floor(extra / 100);
-  const nextThreshold = 250 + (bonusNum - 1) * 100;
+  const bonusNum = 1 + Math.floor(likes / THRESHOLD);
+  const nextThreshold = bonusNum * THRESHOLD;
   return {
     currentCode: `bonus${bonusNum}`,
     nextCode: `bonus${bonusNum + 1}`,
@@ -499,6 +499,7 @@ async function startServer() {
 
     // Send initial snapshot
     res.write(`data: ${JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'REWARDS_LIKES_UPDATED', likes: globalLikes, ...getRewardCodeInfo(globalLikes) })}\n\n`);
 
     const pingTimer = setInterval(() => {
       try {
@@ -975,6 +976,7 @@ async function startServer() {
 
     // Send initial snapshot on connect
     ws.send(JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() }));
+    ws.send(JSON.stringify({ type: 'REWARDS_LIKES_UPDATED', likes: globalLikes, ...getRewardCodeInfo(globalLikes) }));
 
     ws.on('message', (raw) => {
       try {
