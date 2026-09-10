@@ -116,7 +116,14 @@ export function GoodsHUD({
                 </span>
               </div>
 
-              {equippedSub === 'eraser' ? (
+              {equippedSub === 'hat' ? (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[10px] font-black text-[#D97706] bg-[#FFFBEB] px-1.5 py-0.5 rounded border border-[#FDE68A] flex items-center gap-0.5">
+                    <span>⚡️</span>
+                    <span>獲得+50%常時発動</span>
+                  </span>
+                </div>
+              ) : equippedSub === 'eraser' ? (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   {/* Gauge Bar */}
                   <div className="w-14 h-2 bg-[#E5E5E5] rounded-full overflow-hidden shrink-0">

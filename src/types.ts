@@ -42,7 +42,7 @@ export interface Modifier {
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
 
 export type MainGoodsId = 'pencil' | 'marker';
-export type SubGoodsId = 'eraser' | 'ruler';
+export type SubGoodsId = 'eraser' | 'ruler' | 'hat';
 
 export interface GoodsItem {
   id: MainGoodsId | SubGoodsId;

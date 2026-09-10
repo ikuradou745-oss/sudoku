@@ -84,6 +84,7 @@ export function RankedQuizSession({
   // Result State
   const [isWinner, setIsWinner] = useState<boolean>(false);
   const [rpDelta, setRpDelta] = useState<number>(0);
+  const [earnedEnergy, setEarnedEnergy] = useState<number>(0);
   const [placementResult, setPlacementResult] = useState<PlacementResult | null>(null);
 
   const currentQ = questions[currentIndex] || questions[0];
@@ -333,6 +334,12 @@ export function RankedQuizSession({
       audio.playLevelComplete();
     }
 
+    // Calculate earned energy with Hat (+50%) bonus
+    const isHatEquipped = stats.equippedSubGoods === 'hat';
+    const baseEnergy = isPlacement ? 20 : (won ? 15 : 5);
+    const finalEarnedEnergy = isHatEquipped ? Math.round(baseEnergy * 1.5) : baseEnergy;
+    setEarnedEnergy(finalEarnedEnergy);
+
     if (isPlacement) {
       // Analyze Placement Match
       const result = evaluatePlacementMatch(correctCount + (won ? 1 : 0), mistakes, lives <= 0, elapsedSec);
@@ -346,7 +353,7 @@ export function RankedQuizSession({
         placementDone: true,
         rankedWins: won ? 1 : 0,
         rankedLosses: won ? 0 : 1,
-        energy: stats.energy + 20,
+        energy: stats.energy + finalEarnedEnergy,
       });
     } else {
       // Normal Ranked Match
@@ -360,7 +367,7 @@ export function RankedQuizSession({
         rankTier: newTier,
         rankedWins: (stats.rankedWins || 0) + (won ? 1 : 0),
         rankedLosses: (stats.rankedLosses || 0) + (won ? 0 : 1),
-        energy: stats.energy + (won ? 15 : 5),
+        energy: stats.energy + finalEarnedEnergy,
       });
     }
 
@@ -524,7 +531,14 @@ export function RankedQuizSession({
             </div>
             <div className="p-2.5 rounded-2xl bg-[#F7F7F7] border border-[#E5E5E5]">
               <div className="text-[#777777] text-[10px]">獲得⚡️</div>
-              <div className="text-base text-[#FF9600]">+{isWinner ? 20 : 5}⚡️</div>
+              <div className="text-base text-[#FF9600] flex items-center justify-center gap-1">
+                <span>+{earnedEnergy}⚡️</span>
+                {stats.equippedSubGoods === 'hat' && (
+                  <span className="text-[9px] bg-[#FEF3C7] text-[#D97706] px-1 rounded font-black border border-[#FDE68A]">
+                    🧢+50%
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 

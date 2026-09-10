@@ -332,7 +332,7 @@ export function HomeScreen({
                 グッズ
               </div>
               <div className="text-xs font-bold text-white/90">
-                装備中のえんぴつ・マーカー・消しゴム・ものさし
+                装備中のえんぴつ・マーカー・消しゴム・ものさし・帽子
               </div>
             </div>
           </div>

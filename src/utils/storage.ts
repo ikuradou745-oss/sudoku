@@ -40,7 +40,7 @@ export function getStoredUserStats(): UserStats {
         rankedWins: parsed.rankedWins || 0,
         rankedLosses: parsed.rankedLosses || 0,
         equippedMainGoods: parsed.equippedMainGoods === 'marker' ? 'marker' : 'pencil',
-        equippedSubGoods: parsed.equippedSubGoods === 'ruler' ? 'ruler' : 'eraser',
+        equippedSubGoods: parsed.equippedSubGoods === 'ruler' ? 'ruler' : parsed.equippedSubGoods === 'hat' ? 'hat' : 'eraser',
         unlockedGoods: Array.isArray(parsed.unlockedGoods) 
           ? parsed.unlockedGoods.filter((id: string) => id !== 'ramoHat') 
           : ['pencil', 'eraser'],

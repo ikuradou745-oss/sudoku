@@ -42,6 +42,15 @@ export const SUB_GOODS: Record<SubGoodsId, GoodsItem> = {
     description: '15,000⚡️で購入できる計測ものさし！',
     abilityDetail: 'レッスン・試合中ランダムに1回発動！定規が飛び出して長さを測るように文字数を計測。並び替え問題なら「〇 〇〇〇〇 〇 〇〇〇〇」のように文字数枠を表示し、選択問題なら正解単語の文字数（haveなら「〇〇〇〇」）を定規とともに表示します。',
   },
+  hat: {
+    id: 'hat',
+    type: 'sub',
+    name: '帽子',
+    icon: '🧢',
+    price: 15000,
+    description: '15,000⚡️で購入できるエナジー帽子！',
+    abilityDetail: '装備しているだけでもらえる⚡️が50%増えます！（レッスンやランクマッチなど、すべての獲得⚡️が常に1.5倍にアップ）',
+  },
 };
 
 export function getAllGoods(): GoodsItem[] {

@@ -322,17 +322,24 @@ export function QuizSession({
   // Calculate Reward
   const calculateFinalReward = () => {
     const isPerfect = mistakes === 0;
+    let reward = 0;
     if (mode === 'daily') {
       const dailyCalc = calculateDailyReward(dailyStreakCount, isPerfect);
-      return dailyCalc.totalReward;
+      reward = dailyCalc.totalReward;
+    } else {
+      const base = mode === 'practice' ? 10 : 5;
+      const activeMods = modifiers.filter((m) => m.active);
+      const totalBonusPercent = activeMods.reduce((acc, m) => acc + m.bonusPercent, 0);
+      const modMultiplier = 1 + totalBonusPercent / 100;
+      const withMod = Math.round(base * modMultiplier);
+      reward = isPerfect ? withMod * 2 : withMod;
     }
 
-    const base = mode === 'practice' ? 10 : 5;
-    const activeMods = modifiers.filter((m) => m.active);
-    const totalBonusPercent = activeMods.reduce((acc, m) => acc + m.bonusPercent, 0);
-    const modMultiplier = 1 + totalBonusPercent / 100;
-    const withMod = Math.round(base * modMultiplier);
-    return isPerfect ? withMod * 2 : withMod;
+    // Hat Sub-Goods: +50% Energy Boost
+    if (equippedSub === 'hat') {
+      reward = Math.round(reward * 1.5);
+    }
+    return reward;
   };
 
   // Ad Revive Complete
@@ -473,6 +480,16 @@ export function QuizSession({
                     ? `+${dailyBreakdown.perfectBonus} ⚡️ (×2倍)`
                     : '+100%'}
                 </span>
+              </div>
+            )}
+
+            {equippedSub === 'hat' && (
+              <div className="flex justify-between text-[#D97706] bg-[#FFFBEB] p-2 rounded-xl border border-[#FDE68A]">
+                <span className="flex items-center gap-1">
+                  <span>🧢</span>
+                  <span>帽子ボーナス (+50%)</span>
+                </span>
+                <span className="font-black">×1.5倍</span>
               </div>
             )}
 

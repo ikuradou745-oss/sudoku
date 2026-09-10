@@ -44,6 +44,12 @@ const GOODS_VISUALS: Record<string, { appearanceTitle: string; appearanceNote: s
     badgeColor: 'text-[#EA580C] bg-[#FFF7ED] border-[#FED7AA]',
     bgGradient: 'from-[#FFF7ED] to-[#FFEDD5]',
   },
+  hat: {
+    appearanceTitle: 'ふしぎなエナジーキャップ（帽子）',
+    appearanceNote: '身につけると学習効率が格段にアップする魔法の帽子。装備しているだけでレッスンや試合で獲得できる⚡️が常に50%増加する。',
+    badgeColor: 'text-[#D97706] bg-[#FFFBEB] border-[#FDE68A]',
+    bgGradient: 'from-[#FFFBEB] to-[#FEF3C7]',
+  },
 };
 
 export function GoodsModal({
