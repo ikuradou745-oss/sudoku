@@ -230,12 +230,17 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                             {user.name}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           <span className={`px-2 py-0.2 rounded-full border text-[10px] font-black flex items-center gap-1 ${rank.badgeBg}`}>
                             <span>{rank.icon}</span>
                             <span>{rank.name}</span>
                             <span className="font-mono text-[9px]">({user.rating || 0} RP)</span>
                           </span>
+                          {user.activity && (
+                            <span className="text-[10px] font-black text-[#0284C7] bg-[#E0F2FE] px-2 py-0.2 rounded-full border border-[#BAE6FD]">
+                              {user.activity}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -304,12 +309,17 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           <span className={`px-2 py-0.2 rounded-full border text-[10px] font-black flex items-center gap-1 ${rank.badgeBg}`}>
                             <span>{rank.icon}</span>
                             <span>{rank.name}</span>
                             <span className="font-mono text-[9px]">({user.rating || 0} RP)</span>
                           </span>
+                          {user.activity && (
+                            <span className="text-[10px] font-black text-[#0284C7] bg-[#E0F2FE] px-2 py-0.2 rounded-full border border-[#BAE6FD]">
+                              {user.activity}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

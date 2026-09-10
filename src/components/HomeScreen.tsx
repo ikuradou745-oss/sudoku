@@ -9,8 +9,7 @@ import {
   ArrowRight,
   Settings,
   User,
-  Flame,
-  Star
+  Flame
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { 
@@ -30,7 +29,6 @@ interface HomeScreenProps {
   onStartDaily: () => void;
   onOpenCommunity: () => void;
   onOpenGoods: () => void;
-  onOpenRewards: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
   soundEnabled: boolean;
@@ -42,7 +40,6 @@ export function HomeScreen({
   onStartDaily,
   onOpenCommunity,
   onOpenGoods,
-  onOpenRewards,
   onToggleSound,
   onOpenProfile,
   soundEnabled,
@@ -154,24 +151,6 @@ export function HomeScreen({
               )}
             </div>
             <Settings className="w-4 h-4 text-[#AFAFAF] group-hover:text-[#1CB0F6] group-hover:rotate-45 transition-all" />
-          </button>
-
-          {/* ⭐️ Reward Button (⭐️マーク with ! badge until opened) */}
-          <button
-            id="reward-btn"
-            onClick={() => {
-              audio.playTap();
-              onOpenRewards();
-            }}
-            className="relative w-10 h-10 rounded-2xl bg-[#FFFBEB] hover:bg-[#FEF3C7] border-2 border-[#FDE68A] hover:border-[#F59E0B] flex items-center justify-center transition-all cursor-pointer shadow-xs active:scale-95 group"
-            title="⭐️ 報酬 & スペシャルリワード"
-          >
-            <Star className="w-5 h-5 text-[#F59E0B] fill-[#F59E0B] group-hover:scale-110 transition-transform" />
-            {!stats.hasOpenedRewardModal && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF4B4B] border border-white text-[10px] font-black text-white flex items-center justify-center animate-bounce shadow-2xs">
-                !
-              </span>
-            )}
           </button>
 
           {/* 👥 Community & Online Members Button */}

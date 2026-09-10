@@ -16,6 +16,7 @@ interface PresenceUser {
   rankTier: RankTier;
   lastActive: number;
   lastLoginDate: string; // YYYY-MM-DD
+  activity?: string;
 }
 
 interface RankedQueuePlayer {
@@ -94,55 +95,46 @@ const activeParties = new Map<string, PartyInfo>();
 const activeRankedMatches = new Map<string, RankedMatchSession>();
 
 const PRESENCE_CACHE_FILE = path.join(process.cwd(), 'presence_cache.json');
-const LIKES_CACHE_FILE = path.join(process.cwd(), 'likes_cache.json');
 
-let globalLikes = 180;
-
-function getRewardCodeInfo(likes: number) {
-  const THRESHOLD = 1000;
-  if (likes < THRESHOLD) {
-    return {
-      currentCode: 'bonus1',
-      nextCode: 'bonus2',
-      nextThreshold: THRESHOLD,
-      remainingLikes: Math.max(0, THRESHOLD - likes),
-      bonusNum: 1,
-    };
-  }
-  const bonusNum = 1 + Math.floor(likes / THRESHOLD);
-  const nextThreshold = bonusNum * THRESHOLD;
-  return {
-    currentCode: `bonus${bonusNum}`,
-    nextCode: `bonus${bonusNum + 1}`,
-    nextThreshold,
-    remainingLikes: Math.max(0, nextThreshold - likes),
-    bonusNum,
-  };
+interface CommunityStudent {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  rating: number;
+  rankTier: RankTier;
+  activities: string[];
 }
 
-function loadLikesCache() {
-  try {
-    if (fs.existsSync(LIKES_CACHE_FILE)) {
-      const raw = fs.readFileSync(LIKES_CACHE_FILE, 'utf8');
-      const data = JSON.parse(raw);
-      if (typeof data.likes === 'number' && !isNaN(data.likes)) {
-        globalLikes = Math.max(0, data.likes);
-      }
-    }
-  } catch {
-    // Ignore
-  }
-}
+const COMMUNITY_STUDENTS: CommunityStudent[] = [
+  { id: 'member_sakura', name: 'さくら🌸', avatarUrl: null, rating: 185, rankTier: 'silver', activities: ['英単語を練習中 📖', 'デイリー挑戦中 🔥', 'レッスン受講中 ✏️'] },
+  { id: 'member_kenta', name: 'ケンタ🐾', avatarUrl: null, rating: 320, rankTier: 'gold', activities: ['レッスン受講中 ✏️', '文法を復習中 📝'] },
+  { id: 'member_aoi', name: 'アオイ📘', avatarUrl: null, rating: 510, rankTier: 'platinum', activities: ['リスニング特訓中 🎧', 'レッスン受講中 ✏️'] },
+  { id: 'member_eren', name: 'エレン💫', avatarUrl: null, rating: 840, rankTier: 'diamond', activities: ['ハイレベル読解中 📚', 'レッスン受講中 ✏️'] },
+  { id: 'member_yuuki', name: 'ユウキ⚡️', avatarUrl: null, rating: 95, rankTier: 'bronze', activities: ['基礎英単語を特訓中 📖', 'デイリー挑戦中 🔥'] },
+  { id: 'member_haruka', name: 'ハルカ🌟', avatarUrl: null, rating: 290, rankTier: 'gold', activities: ['デイリー挑戦中 🔥', 'レッスン受講中 ✏️'] },
+  { id: 'member_sora', name: 'ソラ☁️', avatarUrl: null, rating: 140, rankTier: 'silver', activities: ['スピーキング発音中 🗣️', '単語カード確認中 📇'] },
+  { id: 'member_sensei', name: 'リンゴ先生🍎', avatarUrl: null, rating: 1250, rankTier: 'heaven', activities: ['英語の解説を作成中 🧐', 'レッスン受講中 ✏️'] },
+  { id: 'member_leo', name: 'レオ🦁', avatarUrl: null, rating: 620, rankTier: 'platinum', activities: ['発音チェック中 🎤', 'レッスン受講中 ✏️'] },
+  { id: 'member_minami', name: 'ミナミ🐬', avatarUrl: null, rating: 380, rankTier: 'gold', activities: ['レッスン受講中 ✏️', 'シャドーイング中 💬'] },
+  { id: 'member_takumi', name: 'タクミ🎯', avatarUrl: null, rating: 210, rankTier: 'silver', activities: ['復習テスト中 🎯', '単語練習中 📖'] },
+  { id: 'member_hinata', name: 'ヒナタ🌻', avatarUrl: null, rating: 60, rankTier: 'bronze', activities: ['初級レッスン受講中 ✏️', '挨拶フレーズ練習中 👋'] },
+  { id: 'member_kai', name: 'カイ🌊', avatarUrl: null, rating: 490, rankTier: 'platinum', activities: ['デイリー挑戦中 🔥', 'レッスン受講中 ✏️'] },
+  { id: 'member_mei', name: 'メイ🍀', avatarUrl: null, rating: 340, rankTier: 'gold', activities: ['英語日記作成中 📔', 'レッスン受講中 ✏️'] },
+  { id: 'member_riku', name: 'リク⚽️', avatarUrl: null, rating: 160, rankTier: 'silver', activities: ['英検対策中 🏆', '単語練習中 📖'] },
+  { id: 'member_yuna', name: 'ユナ🎀', avatarUrl: null, rating: 420, rankTier: 'gold', activities: ['レッスン受講中 ✏️', '英語クイズ挑戦中 💡'] },
+  { id: 'member_daiki', name: 'ダイキ🛹', avatarUrl: null, rating: 260, rankTier: 'silver', activities: ['文法マスター中 📚', 'レッスン受講中 ✏️'] },
+  { id: 'member_tsubasa', name: 'ツバサ🕊️', avatarUrl: null, rating: 710, rankTier: 'diamond', activities: ['実践会話フレーズ練習中 ✈️', 'レッスン受講中 ✏️'] },
+];
 
-function saveLikesCache() {
-  try {
-    fs.writeFileSync(LIKES_CACHE_FILE, JSON.stringify({ likes: globalLikes }, null, 2), 'utf8');
-  } catch {
-    // Ignore
-  }
-}
+const activeOnlineStudentIds = new Set<string>([
+  'member_sakura',
+  'member_kenta',
+  'member_aoi',
+  'member_haruka',
+  'member_leo',
+  'member_minami',
+]);
 
-loadLikesCache();
 function loadPresenceCache() {
   try {
     if (fs.existsSync(PRESENCE_CACHE_FILE)) {
@@ -164,6 +156,7 @@ function loadPresenceCache() {
     // Ignore
   }
 }
+
 function savePresenceCache() {
   try {
     const list = Array.from(presenceMap.values()).filter(
@@ -174,7 +167,47 @@ function savePresenceCache() {
     // Ignore
   }
 }
+
+function seedCommunityMembers() {
+  const now = Date.now();
+  const todayKey = getCurrentDailyCycleKey();
+
+  COMMUNITY_STUDENTS.forEach((student, index) => {
+    const isOnline = activeOnlineStudentIds.has(student.id);
+    const randomActivity = student.activities[Math.floor(Math.random() * student.activities.length)];
+
+    let lastActiveTime: number;
+    if (isOnline) {
+      // Currently online (within last 3 to 8 seconds)
+      lastActiveTime = now - Math.floor(Math.random() * 8000);
+    } else {
+      // Logged in earlier today (staggered from 8 min to 4 hours ago)
+      lastActiveTime = now - (8 * 60 * 1000 + index * 14 * 60 * 1000);
+    }
+
+    const existing = presenceMap.get(student.id);
+    if (!existing || existing.lastLoginDate !== todayKey) {
+      presenceMap.set(student.id, {
+        id: student.id,
+        name: student.name,
+        avatarUrl: student.avatarUrl,
+        rating: student.rating,
+        rankTier: student.rankTier,
+        lastActive: lastActiveTime,
+        lastLoginDate: todayKey,
+        activity: isOnline ? randomActivity : undefined,
+      });
+    } else {
+      if (isOnline) {
+        existing.lastActive = now;
+        if (!existing.activity) existing.activity = randomActivity;
+      }
+    }
+  });
+}
+
 loadPresenceCache();
+seedCommunityMembers();
 
 // Client Connection Context for WebSockets
 const clientMeta = new Map<WebSocket, { playerId: string; name: string }>();
@@ -286,6 +319,85 @@ async function startServer() {
       }
     });
   }
+
+  // ==========================================
+  // Dynamic Live Community Presence Engine (Node.js)
+  // ==========================================
+  let presenceTickCount = 0;
+  setInterval(() => {
+    const now = Date.now();
+    presenceTickCount++;
+
+    // 1. Maintain active heartbeat for currently online community members
+    activeOnlineStudentIds.forEach((id) => {
+      const student = presenceMap.get(id);
+      if (student) {
+        student.lastActive = now;
+      }
+    });
+
+    // 2. Dynamic activity changes and rotation every ~10-15s
+    if (presenceTickCount % 2 === 0) {
+      const allStudentIds = COMMUNITY_STUDENTS.map((s) => s.id);
+      const onlineArray = Array.from(activeOnlineStudentIds);
+      const offlineArray = allStudentIds.filter((id) => !activeOnlineStudentIds.has(id));
+
+      let changed = false;
+
+      // Rotate members (maintain 5 to 8 students online)
+      if (onlineArray.length > 5 && Math.random() < 0.6 && offlineArray.length > 0) {
+        const leavingId = onlineArray[Math.floor(Math.random() * onlineArray.length)];
+        activeOnlineStudentIds.delete(leavingId);
+        const leavingStudent = presenceMap.get(leavingId);
+        if (leavingStudent) {
+          leavingStudent.lastActive = now - 22000;
+          leavingStudent.activity = undefined;
+        }
+
+        const enteringId = offlineArray[Math.floor(Math.random() * offlineArray.length)];
+        activeOnlineStudentIds.add(enteringId);
+        const enteringStudent = presenceMap.get(enteringId);
+        const studentDef = COMMUNITY_STUDENTS.find((s) => s.id === enteringId);
+        if (enteringStudent && studentDef) {
+          enteringStudent.lastActive = now;
+          enteringStudent.activity = studentDef.activities[Math.floor(Math.random() * studentDef.activities.length)];
+        }
+        changed = true;
+      } else if (onlineArray.length < 7 && offlineArray.length > 0) {
+        const enteringId = offlineArray[Math.floor(Math.random() * offlineArray.length)];
+        activeOnlineStudentIds.add(enteringId);
+        const enteringStudent = presenceMap.get(enteringId);
+        const studentDef = COMMUNITY_STUDENTS.find((s) => s.id === enteringId);
+        if (enteringStudent && studentDef) {
+          enteringStudent.lastActive = now;
+          enteringStudent.activity = studentDef.activities[Math.floor(Math.random() * studentDef.activities.length)];
+        }
+        changed = true;
+      }
+
+      // Update student learning activity
+      if (onlineArray.length > 0 && Math.random() < 0.45) {
+        const randomOnlineId = onlineArray[Math.floor(Math.random() * onlineArray.length)];
+        const student = presenceMap.get(randomOnlineId);
+        const studentDef = COMMUNITY_STUDENTS.find((s) => s.id === randomOnlineId);
+        if (student && studentDef) {
+          const nextAct = studentDef.activities[Math.floor(Math.random() * studentDef.activities.length)];
+          if (student.activity !== nextAct) {
+            student.activity = nextAct;
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        savePresenceCache();
+        broadcastEvent({
+          type: 'PRESENCE_SNAPSHOT',
+          ...getPresenceSnapshot(),
+        });
+      }
+    }
+  }, 5000);
 
   // ==========================================
   // Matchmaking Check Engine
@@ -499,7 +611,6 @@ async function startServer() {
 
     // Send initial snapshot
     res.write(`data: ${JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() })}\n\n`);
-    res.write(`data: ${JSON.stringify({ type: 'REWARDS_LIKES_UPDATED', likes: globalLikes, ...getRewardCodeInfo(globalLikes) })}\n\n`);
 
     const pingTimer = setInterval(() => {
       try {
@@ -620,72 +731,6 @@ async function startServer() {
       console.error('[AI Question Generation Error]:', err?.message || err);
       return res.status(500).json({ error: 'Failed to generate question with AI' });
     }
-  });
-
-  // ==========================================
-  // Community Likes & Rewards REST Endpoints
-  // ==========================================
-  app.get('/api/rewards/status', (req, res) => {
-    const info = getRewardCodeInfo(globalLikes);
-    res.json({
-      success: true,
-      likes: globalLikes,
-      ...info,
-    });
-  });
-
-  app.post('/api/rewards/like', (req, res) => {
-    const amount = typeof req.body?.count === 'number' && req.body.count > 0 ? Math.min(10, req.body.count) : 1;
-    globalLikes += amount;
-    saveLikesCache();
-    const info = getRewardCodeInfo(globalLikes);
-
-    broadcastEvent({
-      type: 'REWARDS_LIKES_UPDATED',
-      likes: globalLikes,
-      ...info,
-    });
-
-    res.json({
-      success: true,
-      likes: globalLikes,
-      ...info,
-    });
-  });
-
-  app.post('/api/rewards/claim', (req, res) => {
-    const inputCode = String(req.body?.code || '').trim().toLowerCase();
-    const info = getRewardCodeInfo(globalLikes);
-
-    if (!inputCode) {
-      return res.status(400).json({ error: 'コードを入力してください' });
-    }
-
-    // Check if input matches current code or previous valid bonus codes
-    const currentBonusNum = info.bonusNum;
-    let isValidCode = false;
-    let matchedBonus = 0;
-
-    for (let i = 1; i <= currentBonusNum; i++) {
-      if (inputCode === `bonus${i}`) {
-        isValidCode = true;
-        matchedBonus = i;
-        break;
-      }
-    }
-
-    if (!isValidCode) {
-      return res.status(400).json({ 
-        error: `コード「${inputCode}」は無効です。現在の最新コードは「${info.currentCode}」です。` 
-      });
-    }
-
-    return res.json({
-      success: true,
-      code: `bonus${matchedBonus}`,
-      rewardEnergy: 100,
-      message: `🎉 コード「bonus${matchedBonus}」の報酬 100⚡️ を獲得しました！`,
-    });
   });
 
   // ==========================================
@@ -976,7 +1021,6 @@ async function startServer() {
 
     // Send initial snapshot on connect
     ws.send(JSON.stringify({ type: 'PRESENCE_SNAPSHOT', ...getPresenceSnapshot() }));
-    ws.send(JSON.stringify({ type: 'REWARDS_LIKES_UPDATED', likes: globalLikes, ...getRewardCodeInfo(globalLikes) }));
 
     ws.on('message', (raw) => {
       try {

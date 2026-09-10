@@ -90,6 +90,7 @@ export interface OnlineUserPresence {
   lastActive: number; // timestamp
   isOnline: boolean;
   lastLoginDate: string; // YYYY-MM-DD
+  activity?: string; // e.g. "レッスン受講中 ✏️", "単語練習中 📖"
 }
 
 export interface RankedMatchPlayer {

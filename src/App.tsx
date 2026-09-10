@@ -5,7 +5,6 @@ import { ProfileModal } from './components/ProfileModal';
 import { CommunityModal } from './components/CommunityModal';
 import { QuizSession } from './components/QuizSession';
 import { GoodsModal } from './components/GoodsModal';
-import { RewardModal } from './components/RewardModal';
 import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
@@ -30,7 +29,6 @@ export function App() {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showCommunityModal, setShowCommunityModal] = useState<boolean>(false);
   const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
-  const [showRewardModal, setShowRewardModal] = useState<boolean>(false);
 
   // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
@@ -206,23 +204,6 @@ export function App() {
     });
   };
 
-  const handleOpenRewardModal = () => {
-    if (!stats.hasOpenedRewardModal) {
-      updateStats((prev) => ({
-        ...prev,
-        hasOpenedRewardModal: true,
-      }));
-    }
-    setShowRewardModal(true);
-  };
-
-  const handleUpdateStatsFromReward = (partial: Partial<UserStats>) => {
-    updateStats((prev) => ({
-      ...prev,
-      ...partial,
-    }));
-  };
-
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col justify-between selection:bg-[#58CC02] selection:text-white">
       {/* Main View Area */}
@@ -234,7 +215,6 @@ export function App() {
             onStartDaily={handleStartDaily}
             onOpenCommunity={() => setShowCommunityModal(true)}
             onOpenGoods={() => setShowGoodsModal(true)}
-            onOpenRewards={handleOpenRewardModal}
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             soundEnabled={soundEnabled}
@@ -286,15 +266,6 @@ export function App() {
             onEquipGoods={handleEquipGoods}
             onBuyGoods={handleBuyGoods}
             onClose={() => setShowGoodsModal(false)}
-          />
-        )}
-
-        {/* ⭐️ Reward & Codes Modal */}
-        {showRewardModal && (
-          <RewardModal
-            stats={stats}
-            onUpdateStats={handleUpdateStatsFromReward}
-            onClose={() => setShowRewardModal(false)}
           />
         )}
       </main>
