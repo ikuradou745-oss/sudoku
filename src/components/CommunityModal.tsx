@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { OnlineUserPresence, UserStats } from '../types';
 import { realtimePresence } from '../utils/multiplayer';
-import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
 
 interface CommunityModalProps {
@@ -54,10 +53,11 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  const userRank = getRankInfo(currentUser.rating || 0);
-
   const isRealUser = (u: OnlineUserPresence) =>
-    !!u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot');
+    !!u.id &&
+    !u.id.startsWith('member_') &&
+    !u.id.toLowerCase().includes('bot') &&
+    !u.name.toLowerCase().includes('bot');
 
   // Filter list by search query (Strictly real users only)
   const filteredOnline = onlineUsers.filter(
@@ -121,17 +121,10 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-black text-[#3C3C3C]">
-                  {currentUser.userName || '会員 (あなた)'}
+                  {currentUser.userName || '会員'}
                 </span>
                 <span className="text-[10px] font-black bg-[#58CC02] text-white px-1.5 py-0.2 rounded-md">
                   あなた
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5 text-xs font-black">
-                <span className={`px-2 py-0.5 rounded-full border text-[11px] flex items-center gap-1 ${userRank.badgeBg}`}>
-                  <span>{userRank.icon}</span>
-                  <span>{userRank.name}</span>
-                  <span className="font-mono text-[10px]">({currentUser.rating || 0} RP)</span>
                 </span>
               </div>
             </div>
@@ -201,7 +194,6 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
           {tab === 'online' ? (
             otherOnlineUsers.length > 0 ? (
               otherOnlineUsers.map((user) => {
-                const rank = getRankInfo(user.rating || 0);
                 return (
                   <div
                     key={user.id}
@@ -223,25 +215,20 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                         <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#58CC02] border-2 border-white ring-1 ring-[#58CC02]" />
                       </div>
 
-                      {/* Name & Rank */}
+                      {/* Name */}
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-black text-[#3C3C3C] max-w-[140px] sm:max-w-[200px] truncate">
+                          <span className="text-sm font-black text-[#3C3C3C] max-w-[160px] sm:max-w-[240px] truncate">
                             {user.name}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          <span className={`px-2 py-0.2 rounded-full border text-[10px] font-black flex items-center gap-1 ${rank.badgeBg}`}>
-                            <span>{rank.icon}</span>
-                            <span>{rank.name}</span>
-                            <span className="font-mono text-[9px]">({user.rating || 0} RP)</span>
-                          </span>
-                          {user.activity && (
+                        {user.activity && (
+                          <div className="mt-0.5">
                             <span className="text-[10px] font-black text-[#0284C7] bg-[#E0F2FE] px-2 py-0.2 rounded-full border border-[#BAE6FD]">
                               {user.activity}
                             </span>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -261,14 +248,13 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                 </div>
                 <div className="text-sm font-black text-[#3C3C3C]">現在オンラインの他のプレイヤーはいません</div>
                 <div className="text-xs font-bold text-[#777777] max-w-xs">
-                  現在あなたのみ接続中です（ボット等の水増しは一切ありません）。別タブや他のプレイヤーが接続するとリアルタイムでここに表示されます。
+                  現在あなたのみ接続中です（ボット等の演出は一切含みません）。他の実プレイヤーが接続するとリアルタイムに表示されます。
                 </div>
               </div>
             )
           ) : (
             filteredToday.length > 0 ? (
               filteredToday.map((user) => {
-                const rank = getRankInfo(user.rating || 0);
                 const isMe = user.id === currentUser.userId;
                 return (
                   <div
@@ -297,10 +283,10 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                         )}
                       </div>
 
-                      {/* Name & Rank */}
+                      {/* Name */}
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-black text-[#3C3C3C] max-w-[140px] sm:max-w-[200px] truncate">
+                          <span className="text-sm font-black text-[#3C3C3C] max-w-[160px] sm:max-w-[240px] truncate">
                             {user.name}
                           </span>
                           {isMe && (
@@ -309,18 +295,13 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          <span className={`px-2 py-0.2 rounded-full border text-[10px] font-black flex items-center gap-1 ${rank.badgeBg}`}>
-                            <span>{rank.icon}</span>
-                            <span>{rank.name}</span>
-                            <span className="font-mono text-[9px]">({user.rating || 0} RP)</span>
-                          </span>
-                          {user.activity && (
+                        {user.activity && (
+                          <div className="mt-0.5">
                             <span className="text-[10px] font-black text-[#0284C7] bg-[#E0F2FE] px-2 py-0.2 rounded-full border border-[#BAE6FD]">
                               {user.activity}
                             </span>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 

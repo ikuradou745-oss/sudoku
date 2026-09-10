@@ -96,45 +96,6 @@ const activeRankedMatches = new Map<string, RankedMatchSession>();
 
 const PRESENCE_CACHE_FILE = path.join(process.cwd(), 'presence_cache.json');
 
-interface CommunityStudent {
-  id: string;
-  name: string;
-  avatarUrl: string | null;
-  rating: number;
-  rankTier: RankTier;
-  activities: string[];
-}
-
-const COMMUNITY_STUDENTS: CommunityStudent[] = [
-  { id: 'member_sakura', name: 'さくら🌸', avatarUrl: null, rating: 185, rankTier: 'silver', activities: ['英単語を練習中 📖', 'デイリー挑戦中 🔥', 'レッスン受講中 ✏️'] },
-  { id: 'member_kenta', name: 'ケンタ🐾', avatarUrl: null, rating: 320, rankTier: 'gold', activities: ['レッスン受講中 ✏️', '文法を復習中 📝'] },
-  { id: 'member_aoi', name: 'アオイ📘', avatarUrl: null, rating: 510, rankTier: 'platinum', activities: ['リスニング特訓中 🎧', 'レッスン受講中 ✏️'] },
-  { id: 'member_eren', name: 'エレン💫', avatarUrl: null, rating: 840, rankTier: 'diamond', activities: ['ハイレベル読解中 📚', 'レッスン受講中 ✏️'] },
-  { id: 'member_yuuki', name: 'ユウキ⚡️', avatarUrl: null, rating: 95, rankTier: 'bronze', activities: ['基礎英単語を特訓中 📖', 'デイリー挑戦中 🔥'] },
-  { id: 'member_haruka', name: 'ハルカ🌟', avatarUrl: null, rating: 290, rankTier: 'gold', activities: ['デイリー挑戦中 🔥', 'レッスン受講中 ✏️'] },
-  { id: 'member_sora', name: 'ソラ☁️', avatarUrl: null, rating: 140, rankTier: 'silver', activities: ['スピーキング発音中 🗣️', '単語カード確認中 📇'] },
-  { id: 'member_sensei', name: 'リンゴ先生🍎', avatarUrl: null, rating: 1250, rankTier: 'heaven', activities: ['英語の解説を作成中 🧐', 'レッスン受講中 ✏️'] },
-  { id: 'member_leo', name: 'レオ🦁', avatarUrl: null, rating: 620, rankTier: 'platinum', activities: ['発音チェック中 🎤', 'レッスン受講中 ✏️'] },
-  { id: 'member_minami', name: 'ミナミ🐬', avatarUrl: null, rating: 380, rankTier: 'gold', activities: ['レッスン受講中 ✏️', 'シャドーイング中 💬'] },
-  { id: 'member_takumi', name: 'タクミ🎯', avatarUrl: null, rating: 210, rankTier: 'silver', activities: ['復習テスト中 🎯', '単語練習中 📖'] },
-  { id: 'member_hinata', name: 'ヒナタ🌻', avatarUrl: null, rating: 60, rankTier: 'bronze', activities: ['初級レッスン受講中 ✏️', '挨拶フレーズ練習中 👋'] },
-  { id: 'member_kai', name: 'カイ🌊', avatarUrl: null, rating: 490, rankTier: 'platinum', activities: ['デイリー挑戦中 🔥', 'レッスン受講中 ✏️'] },
-  { id: 'member_mei', name: 'メイ🍀', avatarUrl: null, rating: 340, rankTier: 'gold', activities: ['英語日記作成中 📔', 'レッスン受講中 ✏️'] },
-  { id: 'member_riku', name: 'リク⚽️', avatarUrl: null, rating: 160, rankTier: 'silver', activities: ['英検対策中 🏆', '単語練習中 📖'] },
-  { id: 'member_yuna', name: 'ユナ🎀', avatarUrl: null, rating: 420, rankTier: 'gold', activities: ['レッスン受講中 ✏️', '英語クイズ挑戦中 💡'] },
-  { id: 'member_daiki', name: 'ダイキ🛹', avatarUrl: null, rating: 260, rankTier: 'silver', activities: ['文法マスター中 📚', 'レッスン受講中 ✏️'] },
-  { id: 'member_tsubasa', name: 'ツバサ🕊️', avatarUrl: null, rating: 710, rankTier: 'diamond', activities: ['実践会話フレーズ練習中 ✈️', 'レッスン受講中 ✏️'] },
-];
-
-const activeOnlineStudentIds = new Set<string>([
-  'member_sakura',
-  'member_kenta',
-  'member_aoi',
-  'member_haruka',
-  'member_leo',
-  'member_minami',
-]);
-
 function loadPresenceCache() {
   try {
     if (fs.existsSync(PRESENCE_CACHE_FILE)) {
@@ -143,8 +104,14 @@ function loadPresenceCache() {
       if (Array.isArray(list)) {
         const todayKey = getCurrentDailyCycleKey();
         list.forEach((u: PresenceUser) => {
-          if (u.id && u.name && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')) {
-            // Keep users from today
+          if (
+            u.id &&
+            u.name &&
+            !u.id.startsWith('member_') &&
+            !u.id.toLowerCase().includes('bot') &&
+            !u.name.toLowerCase().includes('bot')
+          ) {
+            // Keep real users from today
             if (u.lastLoginDate === todayKey || Date.now() - u.lastActive < 86400000) {
               presenceMap.set(u.id, u);
             }
@@ -160,7 +127,11 @@ function loadPresenceCache() {
 function savePresenceCache() {
   try {
     const list = Array.from(presenceMap.values()).filter(
-      (u) => u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')
+      (u) =>
+        u.id &&
+        !u.id.startsWith('member_') &&
+        !u.id.toLowerCase().includes('bot') &&
+        !u.name.toLowerCase().includes('bot')
     );
     fs.writeFileSync(PRESENCE_CACHE_FILE, JSON.stringify(list, null, 2), 'utf8');
   } catch {
@@ -168,46 +139,7 @@ function savePresenceCache() {
   }
 }
 
-function seedCommunityMembers() {
-  const now = Date.now();
-  const todayKey = getCurrentDailyCycleKey();
-
-  COMMUNITY_STUDENTS.forEach((student, index) => {
-    const isOnline = activeOnlineStudentIds.has(student.id);
-    const randomActivity = student.activities[Math.floor(Math.random() * student.activities.length)];
-
-    let lastActiveTime: number;
-    if (isOnline) {
-      // Currently online (within last 3 to 8 seconds)
-      lastActiveTime = now - Math.floor(Math.random() * 8000);
-    } else {
-      // Logged in earlier today (staggered from 8 min to 4 hours ago)
-      lastActiveTime = now - (8 * 60 * 1000 + index * 14 * 60 * 1000);
-    }
-
-    const existing = presenceMap.get(student.id);
-    if (!existing || existing.lastLoginDate !== todayKey) {
-      presenceMap.set(student.id, {
-        id: student.id,
-        name: student.name,
-        avatarUrl: student.avatarUrl,
-        rating: student.rating,
-        rankTier: student.rankTier,
-        lastActive: lastActiveTime,
-        lastLoginDate: todayKey,
-        activity: isOnline ? randomActivity : undefined,
-      });
-    } else {
-      if (isOnline) {
-        existing.lastActive = now;
-        if (!existing.activity) existing.activity = randomActivity;
-      }
-    }
-  });
-}
-
 loadPresenceCache();
-seedCommunityMembers();
 
 // Client Connection Context for WebSockets
 const clientMeta = new Map<WebSocket, { playerId: string; name: string }>();
@@ -219,7 +151,11 @@ function getPresenceSnapshot() {
   const now = Date.now();
   const currentDailyKey = getCurrentDailyCycleKey();
   const allUsers = Array.from(presenceMap.values()).filter(
-    (u) => u.id && !u.id.toLowerCase().includes('bot') && !u.name.toLowerCase().includes('bot')
+    (u) =>
+      u.id &&
+      !u.id.startsWith('member_') &&
+      !u.id.toLowerCase().includes('bot') &&
+      !u.name.toLowerCase().includes('bot')
   );
 
   const onlineUsers = allUsers
@@ -320,84 +256,7 @@ async function startServer() {
     });
   }
 
-  // ==========================================
-  // Dynamic Live Community Presence Engine (Node.js)
-  // ==========================================
-  let presenceTickCount = 0;
-  setInterval(() => {
-    const now = Date.now();
-    presenceTickCount++;
 
-    // 1. Maintain active heartbeat for currently online community members
-    activeOnlineStudentIds.forEach((id) => {
-      const student = presenceMap.get(id);
-      if (student) {
-        student.lastActive = now;
-      }
-    });
-
-    // 2. Dynamic activity changes and rotation every ~10-15s
-    if (presenceTickCount % 2 === 0) {
-      const allStudentIds = COMMUNITY_STUDENTS.map((s) => s.id);
-      const onlineArray = Array.from(activeOnlineStudentIds);
-      const offlineArray = allStudentIds.filter((id) => !activeOnlineStudentIds.has(id));
-
-      let changed = false;
-
-      // Rotate members (maintain 5 to 8 students online)
-      if (onlineArray.length > 5 && Math.random() < 0.6 && offlineArray.length > 0) {
-        const leavingId = onlineArray[Math.floor(Math.random() * onlineArray.length)];
-        activeOnlineStudentIds.delete(leavingId);
-        const leavingStudent = presenceMap.get(leavingId);
-        if (leavingStudent) {
-          leavingStudent.lastActive = now - 22000;
-          leavingStudent.activity = undefined;
-        }
-
-        const enteringId = offlineArray[Math.floor(Math.random() * offlineArray.length)];
-        activeOnlineStudentIds.add(enteringId);
-        const enteringStudent = presenceMap.get(enteringId);
-        const studentDef = COMMUNITY_STUDENTS.find((s) => s.id === enteringId);
-        if (enteringStudent && studentDef) {
-          enteringStudent.lastActive = now;
-          enteringStudent.activity = studentDef.activities[Math.floor(Math.random() * studentDef.activities.length)];
-        }
-        changed = true;
-      } else if (onlineArray.length < 7 && offlineArray.length > 0) {
-        const enteringId = offlineArray[Math.floor(Math.random() * offlineArray.length)];
-        activeOnlineStudentIds.add(enteringId);
-        const enteringStudent = presenceMap.get(enteringId);
-        const studentDef = COMMUNITY_STUDENTS.find((s) => s.id === enteringId);
-        if (enteringStudent && studentDef) {
-          enteringStudent.lastActive = now;
-          enteringStudent.activity = studentDef.activities[Math.floor(Math.random() * studentDef.activities.length)];
-        }
-        changed = true;
-      }
-
-      // Update student learning activity
-      if (onlineArray.length > 0 && Math.random() < 0.45) {
-        const randomOnlineId = onlineArray[Math.floor(Math.random() * onlineArray.length)];
-        const student = presenceMap.get(randomOnlineId);
-        const studentDef = COMMUNITY_STUDENTS.find((s) => s.id === randomOnlineId);
-        if (student && studentDef) {
-          const nextAct = studentDef.activities[Math.floor(Math.random() * studentDef.activities.length)];
-          if (student.activity !== nextAct) {
-            student.activity = nextAct;
-            changed = true;
-          }
-        }
-      }
-
-      if (changed) {
-        savePresenceCache();
-        broadcastEvent({
-          type: 'PRESENCE_SNAPSHOT',
-          ...getPresenceSnapshot(),
-        });
-      }
-    }
-  }, 5000);
 
   // ==========================================
   // Matchmaking Check Engine
