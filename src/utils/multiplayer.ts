@@ -1,7 +1,9 @@
+import { io as socketIOClient, Socket } from 'socket.io-client';
 import { 
   OnlineUserPresence, 
   RankedMatchSession, 
-  RankTier 
+  RankTier,
+  LobbyUser
 } from '../types';
 
 export interface PartyInfo {
@@ -19,6 +21,7 @@ export interface PartyInfo {
 
 export type RealtimeEvent =
   | { type: 'PRESENCE_SNAPSHOT'; onlineUsers: OnlineUserPresence[]; todayUsers: OnlineUserPresence[] }
+  | { type: 'LOBBY_USERS_UPDATED'; lobbyUsers: LobbyUser[] }
   | { type: 'QUEUE_STATUS'; queue1v1Count: number; queue2v2Count: number }
   | { type: 'RANKED_MATCH_FOUND'; matchId: string; session: RankedMatchSession }
   | {
@@ -462,6 +465,15 @@ class RealtimePresenceAndRankedService {
         break;
       }
 
+      case 'LOBBY_SNAPSHOT':
+      case 'LOBBY_USERS_UPDATED': {
+        this.emitEvent({
+          type: 'LOBBY_USERS_UPDATED',
+          lobbyUsers: data.lobbyUsers || [],
+        });
+        break;
+      }
+
       case 'QUEUE_STATUS':
       case 'RANKED_MATCH_FOUND':
       case 'RANKED_PROGRESS_UPDATE':
@@ -835,3 +847,133 @@ class RealtimePresenceAndRankedService {
 }
 
 export const realtimePresence = new RealtimePresenceAndRankedService();
+
+// ==========================================
+// Socket.io Lobby Manager ("誰が今ロビーにいるか")
+// ==========================================
+export class LobbySocketManager {
+  private socket: Socket | null = null;
+  private listeners: Set<(users: LobbyUser[]) => void> = new Set();
+  private currentUsers: LobbyUser[] = [];
+  private isInLobby = false;
+  private currentUserData: { userId: string; name: string; avatarUrl?: string | null } | null = null;
+  private currentStatusData: { status: 'idle' | 'in_queue' | 'in_match'; mode?: '1vs1' | '2vs2'; roomCode?: string | null } = { status: 'idle' };
+
+  constructor() {
+    this.initSocket();
+  }
+
+  private initSocket() {
+    if (typeof window === 'undefined') return;
+    try {
+      this.socket = socketIOClient({
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+      });
+
+      this.socket.on('connect', () => {
+        if (this.isInLobby && this.currentUserData) {
+          this.socket?.emit('lobby:join', this.currentUserData);
+          if (this.currentStatusData.status !== 'idle') {
+            this.socket?.emit('lobby:status', this.currentStatusData);
+          }
+        }
+      });
+
+      this.socket.on('lobby:users', (users: LobbyUser[]) => {
+        // Exclude test bots or artificial members to guarantee 100% real players
+        this.currentUsers = (users || []).filter(
+          (u) =>
+            u.userId &&
+            !u.userId.startsWith('member_') &&
+            !u.userId.toLowerCase().includes('bot') &&
+            !u.name.toLowerCase().includes('bot')
+        );
+        this.notifyListeners();
+      });
+
+      this.socket.on('disconnect', () => {
+        // Will auto reconnect
+      });
+    } catch (err) {
+      console.warn('Socket.io client initialization error:', err);
+    }
+  }
+
+  public joinLobby(user: { userId: string; name: string; avatarUrl?: string | null }) {
+    this.isInLobby = true;
+    this.currentUserData = user;
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('lobby:join', user);
+    } else if (this.socket) {
+      this.socket.connect();
+    }
+    // Also fetch initial list via REST just in case
+    this.fetchLobbyUsers();
+  }
+
+  public updateStatus(status: 'idle' | 'in_queue' | 'in_match', mode?: '1vs1' | '2vs2', roomCode?: string | null) {
+    this.currentStatusData = { status, mode, roomCode };
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('lobby:status', this.currentStatusData);
+    }
+  }
+
+  public leaveLobby() {
+    this.isInLobby = false;
+    this.currentStatusData = { status: 'idle' };
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('lobby:leave');
+    }
+  }
+
+  public async fetchLobbyUsers(): Promise<LobbyUser[]> {
+    try {
+      const res = await fetch('/api/lobby/users');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.lobbyUsers)) {
+          this.currentUsers = data.lobbyUsers.filter(
+            (u: LobbyUser) =>
+              u.userId &&
+              !u.userId.startsWith('member_') &&
+              !u.userId.toLowerCase().includes('bot') &&
+              !u.name.toLowerCase().includes('bot')
+          );
+          this.notifyListeners();
+        }
+      }
+    } catch {
+      // Ignore
+    }
+    return this.currentUsers;
+  }
+
+  public subscribe(callback: (users: LobbyUser[]) => void): () => void {
+    this.listeners.add(callback);
+    callback(this.currentUsers);
+    return () => {
+      this.listeners.delete(callback);
+    };
+  }
+
+  public getUsers(): LobbyUser[] {
+    return this.currentUsers;
+  }
+
+  private notifyListeners() {
+    this.listeners.forEach((cb) => {
+      try {
+        cb(this.currentUsers);
+      } catch (err) {
+        console.error('Lobby listener error:', err);
+      }
+    });
+  }
+}
+
+export const lobbySocket = new LobbySocketManager();
+

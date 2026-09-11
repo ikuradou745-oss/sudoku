@@ -93,6 +93,17 @@ export interface OnlineUserPresence {
   activity?: string; // e.g. "レッスン受講中 ✏️", "単語練習中 📖"
 }
 
+export interface LobbyUser {
+  socketId: string;
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  status: 'idle' | 'in_queue' | 'in_match';
+  mode?: '1vs1' | '2vs2';
+  roomCode?: string | null;
+  joinedAt: number;
+}
+
 export interface RankedMatchPlayer {
   id: string;
   name: string;

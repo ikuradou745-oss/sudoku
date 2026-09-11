@@ -16,9 +16,9 @@ import {
   Info,
   Bot
 } from 'lucide-react';
-import { UserStats, RankedMatchSession, RankedMatchPlayer } from '../types';
+import { UserStats, RankedMatchSession, RankedMatchPlayer, LobbyUser } from '../types';
 import { RANK_TIERS, getRankInfo } from '../utils/rank';
-import { realtimePresence, PartyInfo } from '../utils/multiplayer';
+import { realtimePresence, PartyInfo, lobbySocket } from '../utils/multiplayer';
 import { audio } from '../utils/audio';
 
 interface RankedLobbyModalProps {
@@ -41,6 +41,9 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   const [queueCounts, setQueueCounts] = useState<{ queue1v1Count: number; queue2v2Count: number }>({ queue1v1Count: 0, queue2v2Count: 0 });
   const [onlineCount, setOnlineCount] = useState<number>(() => realtimePresence.getOnlineUsers().length);
 
+  // Socket.io Lobby Users ("誰が今ロビーにいるか")
+  const [lobbyUsers, setLobbyUsers] = useState<LobbyUser[]>(() => lobbySocket.getUsers());
+
   // Party State for 2vs2
   const [currentParty, setCurrentParty] = useState<PartyInfo | null>(null);
   const [joinPartyCode, setJoinPartyCode] = useState<string>('');
@@ -48,6 +51,27 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
   const currentRank = getRankInfo(stats.rating || 0);
+
+  // Socket.io Lobby lifecycle
+  useEffect(() => {
+    const activeUserId = stats.userId || 'user_player';
+    // 1. Join lobby with real user info
+    lobbySocket.joinLobby({
+      userId: activeUserId,
+      name: stats.userName || '会員',
+      avatarUrl: stats.avatarUrl || null,
+    });
+
+    // 2. Subscribe to real-time lobby user changes via Socket.io
+    const unsubscribeLobby = lobbySocket.subscribe((users) => {
+      setLobbyUsers(users);
+    });
+
+    return () => {
+      unsubscribeLobby();
+      lobbySocket.leaveLobby();
+    };
+  }, [stats.userId, stats.userName, stats.avatarUrl]);
 
   // Subscribe to matchmaking events
   useEffect(() => {
@@ -57,6 +81,7 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
         if (event.session.players.some((p) => p.id === stats.userId)) {
           audio.playMatchFound();
           setIsSearching(false);
+          lobbySocket.updateStatus('in_match');
           onStartMatch(event.session, false);
         }
       } else if (event.type === 'QUEUE_STATUS') {
@@ -229,12 +254,14 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
     audio.playTap();
     setIsSearching(true);
     const activeCode = matchType === 'room' && roomCode.trim() ? roomCode.trim().toUpperCase() : undefined;
+    lobbySocket.updateStatus('in_queue', selectedMode, activeCode || null);
     await realtimePresence.queueRanked(selectedMode, currentParty?.partyId, activeCode);
   };
 
   const handleCancelQueue = async () => {
     audio.playTap();
     setIsSearching(false);
+    lobbySocket.updateStatus('idle');
     await realtimePresence.cancelQueue();
   };
 
@@ -431,6 +458,45 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
               </div>
             )}
 
+            {/* Socket.io Live Lobby Users Status during Queue */}
+            <div className="p-3.5 rounded-2xl bg-white border-2 border-[#E5E5E5] text-left max-w-sm mx-auto space-y-2">
+              <div className="flex items-center justify-between text-xs font-black text-[#3C3C3C]">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-ping" />
+                  <span>ロビー接続中 ({lobbyUsers.length}人)</span>
+                </div>
+                <span className="text-[10px] text-[#777777] font-bold">Socket.io リアルタイム</span>
+              </div>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {lobbyUsers.map((user) => {
+                  const isMe = user.userId === stats.userId;
+                  return (
+                    <div
+                      key={user.socketId || user.userId}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between ${
+                        isMe ? 'bg-[#EBF7FD] text-[#0284C7] font-black' : 'bg-[#F7F7F7] text-[#4B4B4B] font-bold'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
+                        <span className="truncate">{user.name}</span>
+                        {isMe && <span className="text-[9px] bg-[#0284C7] text-white px-1 rounded-sm">あなた</span>}
+                      </div>
+                      <span className="text-[10px] font-black shrink-0">
+                        {user.status === 'in_queue' ? (
+                          <span className="text-[#EA580C]">検索中</span>
+                        ) : user.status === 'in_match' ? (
+                          <span className="text-[#8B5CF6]">対戦中</span>
+                        ) : (
+                          <span className="text-[#16A34A]">待機中</span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Quick Dual-Tab Test Button & Cancel Button */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-sm mx-auto">
               <button
@@ -545,6 +611,146 @@ export function RankedLobbyModal({ stats, onStartMatch, onClose }: RankedLobbyMo
                 </button>
               </div>
             )}
+
+            {/* Socket.io Realtime Lobby Members ("誰が今ロビーにいるか") */}
+            <div className="p-4 rounded-3xl bg-[#F0FDF4] border-2 border-[#86EFAC] space-y-3 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#16A34A]"></span>
+                  </span>
+                  <span className="text-xs font-black text-[#15803D]">
+                    現在ロビーにいるプレイヤー (Socket.io リアルタイム)
+                  </span>
+                  <span className="text-[10px] font-black bg-[#22C55E] text-white px-2 py-0.5 rounded-full">
+                    {lobbyUsers.length}人接続
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => lobbySocket.fetchLobbyUsers()}
+                  className="text-[10px] font-bold text-[#16A34A] hover:underline cursor-pointer flex items-center gap-1"
+                  title="最新状態に更新"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  <span>更新</span>
+                </button>
+              </div>
+
+              {/* Lobby Users List (Strictly Real Online Users - No Bots, No Ranks in Names) */}
+              <div className="space-y-2">
+                {lobbyUsers.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {lobbyUsers.map((user) => {
+                      const isMe = user.userId === stats.userId;
+                      return (
+                        <div
+                          key={user.socketId || user.userId}
+                          className={`p-2.5 rounded-2xl border flex items-center justify-between transition-all ${
+                            isMe
+                              ? 'bg-white border-[#86EFAC] shadow-xs'
+                              : 'bg-white/90 border-[#BBF7D0] hover:border-[#86EFAC]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative shrink-0">
+                              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#58CC02] to-[#22C55E] text-white flex items-center justify-center font-black text-sm">
+                                {user.avatarUrl ? (
+                                  <img
+                                    src={user.avatarUrl}
+                                    alt=""
+                                    className="w-full h-full rounded-xl object-cover"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  user.name.slice(0, 1)
+                                )}
+                              </div>
+                              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#22C55E] border-2 border-white ring-1 ring-[#22C55E]" />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-black text-[#3C3C3C] truncate max-w-[110px] sm:max-w-[130px]">
+                                  {user.name}
+                                </span>
+                                {isMe && (
+                                  <span className="text-[9px] font-black bg-[#58CC02] text-white px-1.5 py-0.2 rounded-md shrink-0">
+                                    あなた
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 text-[10px] font-bold mt-0.5">
+                                {user.status === 'in_match' ? (
+                                  <span className="text-[#8B5CF6] font-black flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]" />
+                                    対戦中
+                                  </span>
+                                ) : user.status === 'in_queue' ? (
+                                  <span className="text-[#EA580C] font-black flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C] animate-ping" />
+                                    対戦相手を探し中 ({user.mode || '1vs1'})
+                                  </span>
+                                ) : (
+                                  <span className="text-[#16A34A] font-black flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
+                                    ロビー待機中
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Quick Match Action if another player is in queue */}
+                          {!isMe && user.status === 'in_queue' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                audio.playTap();
+                                if (user.mode) setSelectedMode(user.mode);
+                                if (user.roomCode) {
+                                  setMatchType('room');
+                                  setRoomCode(user.roomCode);
+                                }
+                                handleStartQueue();
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-[#58CC02] hover:bg-[#46A302] text-white text-[11px] font-black shrink-0 transition-colors shadow-xs cursor-pointer ml-2"
+                            >
+                              対戦する
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-3 bg-white/70 rounded-2xl text-center text-xs font-bold text-[#777777]">
+                    ロビー接続を確認中...
+                  </div>
+                )}
+
+                {/* Info when user is alone in the lobby */}
+                {lobbyUsers.filter((u) => u.userId !== stats.userId).length === 0 && (
+                  <div className="p-3 rounded-2xl bg-white/80 border border-[#86EFAC] text-center space-y-1.5">
+                    <p className="text-[11px] font-black text-[#166534]">
+                      現在ロビーにはあなたのみ接続中です（ボット等の演出は一切含みません）。
+                    </p>
+                    <p className="text-[10px] font-bold text-[#15803D]">
+                      別のブラウザタブを開くか、他のプレイヤーが対戦ロビーを開くと、Socket.io で即座にここに表示されます。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleOpenDuplicateTab}
+                      className="text-xs font-black text-[#15803D] bg-[#DCFCE7] hover:bg-[#BBF7D0] px-3 py-1.5 rounded-xl border border-[#86EFAC] inline-flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                    >
+                      <span>別タブを開いてロビー同期テスト</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Mode Select Buttons */}
             <div className="space-y-2">

@@ -3,10 +3,22 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
+import { Server as SocketIOServer } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
+
+export interface LobbyUser {
+  socketId: string;
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  status: 'idle' | 'in_queue' | 'in_match';
+  mode?: '1vs1' | '2vs2';
+  roomCode?: string | null;
+  joinedAt: number;
+}
 
 interface PresenceUser {
   id: string;
@@ -89,6 +101,7 @@ function getCurrentDailyCycleKey(now: Date = new Date()): string {
 
 // Global In-Memory Stores
 const presenceMap = new Map<string, PresenceUser>();
+const lobbyUsers = new Map<string, LobbyUser>();
 const rankedQueue1v1: RankedQueuePlayer[] = [];
 const rankedQueue2v2: RankedQueuePlayer[] = [];
 const activeParties = new Map<string, PartyInfo>();
@@ -216,7 +229,81 @@ async function startServer() {
   // Real-time WebSocket Server
   const wss = new WebSocketServer({ server, path: '/ws' });
 
-  // Unified broadcast function (WebSockets + SSE)
+  // Socket.io Server for Real-Time Match Lobby ("誰が今ロビーにいるか")
+  const io = new SocketIOServer(server, {
+    cors: { origin: '*' },
+    path: '/socket.io',
+  });
+
+  function getLobbyUsersSnapshot(): LobbyUser[] {
+    return Array.from(lobbyUsers.values()).filter(
+      (u) =>
+        u.userId &&
+        !u.userId.startsWith('member_') &&
+        !u.userId.toLowerCase().includes('bot') &&
+        !u.name.toLowerCase().includes('bot')
+    );
+  }
+
+  function broadcastLobbySnapshot() {
+    const list = getLobbyUsersSnapshot();
+    io.emit('lobby:users', list);
+    // Also notify via unified broadcast so all clients/listeners stay synced
+    broadcastEvent({
+      type: 'LOBBY_SNAPSHOT',
+      lobbyUsers: list,
+    });
+  }
+
+  io.on('connection', (socket) => {
+    // 1. Send current lobby list immediately to the connecting client
+    socket.emit('lobby:users', getLobbyUsersSnapshot());
+
+    // 2. Client enters the Match Lobby
+    socket.on('lobby:join', (data: { userId: string; name: string; avatarUrl?: string | null }) => {
+      if (!data?.userId) return;
+      if (data.userId.toLowerCase().includes('bot') || (data.name && data.name.toLowerCase().includes('bot'))) return;
+
+      lobbyUsers.set(socket.id, {
+        socketId: socket.id,
+        userId: data.userId,
+        name: data.name || '会員',
+        avatarUrl: data.avatarUrl || null,
+        status: 'idle',
+        joinedAt: Date.now(),
+      });
+      broadcastLobbySnapshot();
+    });
+
+    // 3. Update status within lobby (e.g. queuing for 1v1, room match, or in-match)
+    socket.on('lobby:status', (data: { status: 'idle' | 'in_queue' | 'in_match'; mode?: '1vs1' | '2vs2'; roomCode?: string | null }) => {
+      const user = lobbyUsers.get(socket.id);
+      if (user) {
+        user.status = data.status || 'idle';
+        user.mode = data.mode;
+        user.roomCode = data.roomCode;
+        broadcastLobbySnapshot();
+      }
+    });
+
+    // 4. Client leaves lobby explicitly
+    socket.on('lobby:leave', () => {
+      if (lobbyUsers.has(socket.id)) {
+        lobbyUsers.delete(socket.id);
+        broadcastLobbySnapshot();
+      }
+    });
+
+    // 5. Client disconnects
+    socket.on('disconnect', () => {
+      if (lobbyUsers.has(socket.id)) {
+        lobbyUsers.delete(socket.id);
+        broadcastLobbySnapshot();
+      }
+    });
+  });
+
+  // Unified broadcast function (WebSockets + SSE + Socket.io)
   function broadcastEvent(data: any) {
     const raw = JSON.stringify(data);
 
@@ -240,6 +327,13 @@ async function startServer() {
         sseClients.delete(res);
       }
     });
+
+    // 3. Socket.io Broadcast
+    try {
+      io.emit('server:event', data);
+    } catch {
+      // Ignore
+    }
   }
 
   function sendToPlayer(playerId: string, data: any) {
@@ -526,6 +620,11 @@ async function startServer() {
 
   app.get('/api/presence/members', (req, res) => {
     res.json(getPresenceSnapshot());
+  });
+
+  // Realtime Match Lobby Users ("誰が今ロビーにいるか") via REST
+  app.get('/api/lobby/users', (req, res) => {
+    res.json({ lobbyUsers: getLobbyUsersSnapshot() });
   });
 
   // ==========================================
@@ -977,7 +1076,7 @@ async function startServer() {
     // Fallback for SPA routing in development
     app.use(async (req, res, next) => {
       if (req.method !== 'GET') return next();
-      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/ws')) return next();
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/ws') || req.originalUrl.startsWith('/socket.io')) return next();
       try {
         const url = req.originalUrl;
         const indexPath = path.resolve(process.cwd(), 'index.html');
@@ -1005,7 +1104,7 @@ async function startServer() {
     }));
     app.use((req, res, next) => {
       if (req.method !== 'GET') return next();
-      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/ws')) return next();
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/ws') || req.originalUrl.startsWith('/socket.io')) return next();
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(distPath, 'index.html'));
     });
