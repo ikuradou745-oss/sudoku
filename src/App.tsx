@@ -5,7 +5,9 @@ import { ProfileModal } from './components/ProfileModal';
 import { CommunityModal } from './components/CommunityModal';
 import { QuizSession } from './components/QuizSession';
 import { GoodsModal } from './components/GoodsModal';
-import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem } from './types';
+import { RankedLobbyModal } from './components/RankedLobbyModal';
+import { RankedQuizSession } from './components/RankedQuizSession';
+import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem, RankedMatchSession } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
   getStoredUserStats, 
@@ -17,7 +19,7 @@ import { realtimePresence } from './utils/multiplayer';
 import { audio } from './utils/audio';
 import { fetchAiQuestion } from './utils/aiQuestionClient';
 
-type AppPhase = 'home' | 'quiz';
+type AppPhase = 'home' | 'quiz' | 'ranked';
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('home');
@@ -29,6 +31,11 @@ export function App() {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showCommunityModal, setShowCommunityModal] = useState<boolean>(false);
   const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
+  const [showRankedLobbyModal, setShowRankedLobbyModal] = useState<boolean>(false);
+
+  // Ranked Match State
+  const [rankedSession, setRankedSession] = useState<RankedMatchSession | null>(null);
+  const [isPlacementMatch, setIsPlacementMatch] = useState<boolean>(false);
 
   // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
@@ -204,6 +211,28 @@ export function App() {
     });
   };
 
+  // 7. Ranked Match Lifecycle
+  const handleStartRankedMatch = (session: RankedMatchSession, isPlacement: boolean) => {
+    setRankedSession(session);
+    setIsPlacementMatch(isPlacement);
+    setShowRankedLobbyModal(false);
+    setPhase('ranked');
+  };
+
+  const handleFinishRankedMatch = (updatedStats: Partial<UserStats>) => {
+    updateStats((prev) => ({
+      ...prev,
+      ...updatedStats,
+    }));
+    setPhase('home');
+    setRankedSession(null);
+  };
+
+  const handleExitRankedMatch = () => {
+    setPhase('home');
+    setRankedSession(null);
+  };
+
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col justify-between selection:bg-[#58CC02] selection:text-white">
       {/* Main View Area */}
@@ -213,6 +242,7 @@ export function App() {
             stats={stats}
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
+            onOpenRanked={() => setShowRankedLobbyModal(true)}
             onOpenCommunity={() => setShowCommunityModal(true)}
             onOpenGoods={() => setShowGoodsModal(true)}
             onToggleSound={handleToggleSound}
@@ -229,6 +259,25 @@ export function App() {
             stats={stats}
             onFinish={handleQuizFinish}
             onExit={handleExitQuiz}
+          />
+        )}
+
+        {phase === 'ranked' && rankedSession && (
+          <RankedQuizSession
+            stats={stats}
+            session={rankedSession}
+            isPlacement={isPlacementMatch}
+            onFinishMatch={handleFinishRankedMatch}
+            onExit={handleExitRankedMatch}
+          />
+        )}
+
+        {/* ⚔️ Ranked Lobby Modal (Socket.io Realtime "誰が今ロビーにいるか") */}
+        {showRankedLobbyModal && (
+          <RankedLobbyModal
+            stats={stats}
+            onStartMatch={handleStartRankedMatch}
+            onClose={() => setShowRankedLobbyModal(false)}
           />
         )}
 
