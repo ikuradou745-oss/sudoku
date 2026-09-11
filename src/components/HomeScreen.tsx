@@ -9,10 +9,9 @@ import {
   ArrowRight,
   Settings,
   User,
-  Flame,
-  Swords
+  Flame
 } from 'lucide-react';
-import { UserStats, LobbyUser } from '../types';
+import { UserStats } from '../types';
 import { 
   isDailyCompletedToday, 
   getNextResetTimeString,
@@ -22,13 +21,12 @@ import {
 } from '../utils/storage';
 import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
-import { realtimePresence, lobbySocket } from '../utils/multiplayer';
+import { realtimePresence } from '../utils/multiplayer';
 
 interface HomeScreenProps {
   stats: UserStats;
   onStartPractice: () => void;
   onStartDaily: () => void;
-  onOpenRanked: () => void;
   onOpenCommunity: () => void;
   onOpenGoods: () => void;
   onToggleSound: () => void;
@@ -40,7 +38,6 @@ export function HomeScreen({
   stats,
   onStartPractice,
   onStartDaily,
-  onOpenRanked,
   onOpenCommunity,
   onOpenGoods,
   onToggleSound,
@@ -50,7 +47,6 @@ export function HomeScreen({
   const [dailyDone, setDailyDone] = useState<boolean>(false);
   const [resetCountdown, setResetCountdown] = useState<string>('');
   const [onlineCount, setOnlineCount] = useState<number>(() => realtimePresence.getOnlineUsers().length);
-  const [lobbyUsers, setLobbyUsers] = useState<LobbyUser[]>(() => lobbySocket.getUsers());
 
   useEffect(() => {
     const isDone = isDailyCompletedToday(stats.lastDailyDate);
@@ -67,14 +63,9 @@ export function HomeScreen({
       }
     });
 
-    const unsubscribeLobby = lobbySocket.subscribe((users) => {
-      setLobbyUsers(users);
-    });
-
     return () => {
       clearInterval(interval);
       unsubscribePresence();
-      unsubscribeLobby();
     };
   }, [stats.lastDailyDate]);
 
@@ -195,70 +186,20 @@ export function HomeScreen({
           {stats.userName ? `ようこそ、${stats.userName}さん！` : '問題を解いて⚡️コインをあつめよう！'}
         </p>
 
-        {/* User Rank Card Pill (Clickable to open Ranked Lobby) */}
-        <button
-          type="button"
-          onClick={() => {
-            audio.playTap();
-            onOpenRanked();
-          }}
-          className="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border-2 bg-white hover:bg-[#F0FDF4] hover:border-[#86EFAC] shadow-xs cursor-pointer transition-all group"
-          title="オンライン対戦ロビーを開く"
-        >
+        {/* User Rank Card Pill */}
+        <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border-2 bg-white shadow-xs">
           <span className="text-base">{userRank.icon}</span>
-          <span className="text-xs font-black text-[#3C3C3C] group-hover:text-[#16A34A]">
+          <span className="text-xs font-black text-[#3C3C3C]">
             ランク: {userRank.name}
           </span>
           <span className="text-[11px] font-mono font-black text-[#1CB0F6] bg-[#EBF7FD] px-2 py-0.5 rounded-md">
             {stats.rating || 0} RP
           </span>
-          <span className="text-[10px] font-black text-[#16A34A] bg-[#DCFCE7] px-2 py-0.5 rounded-full flex items-center gap-1">
-            <Swords className="w-3 h-3" />
-            <span>対戦ロビー</span>
-          </span>
-        </button>
+        </div>
       </div>
 
       {/* Main Action Buttons */}
       <div className="space-y-3.5">
-        {/* ⚔️ オンライン対戦（ランクマッチ & 誰が今ロビーにいるか） */}
-        <button
-          id="start-ranked-btn"
-          onClick={() => {
-            audio.playTap();
-            onOpenRanked();
-          }}
-          className="duo-btn duo-btn-red w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer border-2 border-[#E5484D]"
-        >
-          <div className="flex items-center gap-3.5 text-left">
-            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
-              <Swords className="w-6 h-6 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-black text-white">
-                  オンライン対戦
-                </span>
-                <span className="text-[10px] font-black bg-white text-[#FF4B4B] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-2xs">
-                  Socket.io
-                </span>
-              </div>
-              <div className="text-xs font-bold text-white/95 mt-0.5">
-                {lobbyUsers.length > 0 
-                  ? `現在ロビーに ${lobbyUsers.length}人 接続中・リアルタイム対戦`
-                  : '1vs1・2vs2 リアルタイム対戦ロビー'}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/20 text-white text-xs font-black">
-              <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-ping" />
-              <span>{lobbyUsers.length}人ロビー</span>
-            </div>
-            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
-          </div>
-        </button>
-
         {/* 1. 学習を始める */}
         <button
           id="start-practice-btn"
