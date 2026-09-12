@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Learning profile, stats, energy, streak, and equipment for an English learner",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The unique Firebase Auth UID of the user",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userName": {
+          "type": "string",
+          "description": "Display name of the learner",
+          "maxLength": 30
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "Data URL or avatar image identifier",
+          "maxLength": 100000
+        },
+        "energy": {
+          "type": "number",
+          "description": "Current energy (⚡️) balance"
+        },
+        "streak": {
+          "type": "number",
+          "description": "Daily streak count"
+        },
+        "lastDailyDate": {
+          "type": "string",
+          "description": "Last completed daily cycle date string (YYYY-MM-DD)",
+          "maxLength": 20
+        },
+        "completedSessions": {
+          "type": "number",
+          "description": "Total number of completed quiz sessions"
+        },
+        "perfectSessions": {
+          "type": "number",
+          "description": "Total number of 100% correct quiz sessions"
+        },
+        "rating": {
+          "type": "number",
+          "description": "Ranked rating points"
+        },
+        "rankTier": {
+          "type": "string",
+          "description": "User rank tier category",
+          "enum": ["bronze", "silver", "gold", "platinum", "diamond", "heaven"]
+        },
+        "equippedMainGoods": {
+          "type": "string",
+          "description": "Equipped main stationery item",
+          "enum": ["pencil", "marker"]
+        },
+        "equippedSubGoods": {
+          "type": "string",
+          "description": "Equipped sub stationery item",
+          "enum": ["eraser", "ruler", "hat"]
+        },
+        "unlockedGoods": {
+          "type": "array",
+          "description": "List of unlocked goods IDs"
+        },
+        "lastActive": {
+          "type": "number",
+          "description": "Timestamp of user's last activity in milliseconds"
+        },
+        "isOnline": {
+          "type": "boolean",
+          "description": "Whether the user is currently online"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp when profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Server timestamp of last profile update"
+        }
+      },
+      "required": ["userId", "userName", "energy", "streak", "rating", "rankTier"]
+    },
+    "TestConnection": {
+      "title": "TestConnection",
+      "description": "Health check connection document",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Connection test status"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Learner profile and synchronized game state"
+    },
+    "/test/connection": {
+      "schema": "TestConnection",
+      "description": "Health check document for initial connection testing"
+    }
+  }
+}

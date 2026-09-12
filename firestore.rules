@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions for security validation
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+        data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userName is string && data.userName.size() > 0 && data.userName.size() <= 30 &&
+        data.energy is number && data.energy >= 0 &&
+        data.streak is number && data.streak >= 0 &&
+        data.rating is number && data.rating >= 0 &&
+        data.rankTier in ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'heaven'] &&
+        (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() <= 100000)) &&
+        (!('lastDailyDate' in data) || data.lastDailyDate == null || (data.lastDailyDate is string && data.lastDailyDate.size() <= 20)) &&
+        (!('completedSessions' in data) || (data.completedSessions is number && data.completedSessions >= 0)) &&
+        (!('perfectSessions' in data) || (data.perfectSessions is number && data.perfectSessions >= 0)) &&
+        (!('equippedMainGoods' in data) || data.equippedMainGoods in ['pencil', 'marker']) &&
+        (!('equippedSubGoods' in data) || data.equippedSubGoods in ['eraser', 'ruler', 'hat']) &&
+        (!('unlockedGoods' in data) || (data.unlockedGoods is list && data.unlockedGoods.size() <= 20)) &&
+        (!('lastActive' in data) || data.lastActive is number) &&
+        (!('isOnline' in data) || data.isOnline is bool) &&
+        (!('createdAt' in data) || data.createdAt is string || data.createdAt is timestamp) &&
+        (!('updatedAt' in data) || data.updatedAt is string || data.updatedAt is timestamp) &&
+        data.keys().hasAll(['userId', 'userName', 'energy', 'streak', 'rating', 'rankTier']) &&
+        data.keys().size() <= 17;
+    }
+
+    // Health check test connection path
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // User profiles & stats collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.isOnline == true;
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().userId == existing().userId &&
+        (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) &&
+        (
+          // Action 1: Update learning progress & scores
+          incoming().diff(existing()).affectedKeys().hasOnly(['energy', 'streak', 'lastDailyDate', 'completedSessions', 'perfectSessions', 'rating', 'rankTier', 'lastActive', 'isOnline', 'updatedAt']) ||
+          // Action 2: Update display name and avatar
+          incoming().diff(existing()).affectedKeys().hasOnly(['userName', 'avatarUrl', 'lastActive', 'isOnline', 'updatedAt']) ||
+          // Action 3: Equip items or purchase goods
+          incoming().diff(existing()).affectedKeys().hasOnly(['equippedMainGoods', 'equippedSubGoods', 'unlockedGoods', 'energy', 'lastActive', 'isOnline', 'updatedAt']) ||
+          // Action 4: Presence heartbeat
+          incoming().diff(existing()).affectedKeys().hasOnly(['isOnline', 'lastActive', 'updatedAt'])
+        );
+      allow delete: if isOwner(userId) && isValidId(userId);
+    }
+  }
+}

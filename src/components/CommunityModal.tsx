@@ -9,6 +9,7 @@ import {
 import { OnlineUserPresence, UserStats } from '../types';
 import { realtimePresence } from '../utils/multiplayer';
 import { audio } from '../utils/audio';
+import { auth, subscribeToOnlineUsers } from '../utils/firebase';
 
 interface CommunityModalProps {
   currentUser: UserStats;
@@ -22,18 +23,49 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
-    // Initial fetch & subscribe
+    // Initial fetch & subscribe from realtimePresence
     setOnlineUsers(realtimePresence.getOnlineUsers());
     setTodayUsers(realtimePresence.getTodayUsers());
 
-    const unsubscribe = realtimePresence.subscribe((event) => {
+    const unsubscribeRealtime = realtimePresence.subscribe((event) => {
       if (event.type === 'PRESENCE_SNAPSHOT') {
         setOnlineUsers(event.onlineUsers);
         setTodayUsers(event.todayUsers);
       }
     });
 
-    return () => unsubscribe();
+    let unsubscribeFirestore: (() => void) | null = null;
+    if (auth.currentUser) {
+      try {
+        unsubscribeFirestore = subscribeToOnlineUsers((docs) => {
+          const firestorePresences: OnlineUserPresence[] = docs.map((d: Record<string, unknown>) => ({
+            id: String(d.userId || ''),
+            name: String(d.userName || 'ユーザー'),
+            avatarUrl: (d.avatarUrl as string) || null,
+            rating: typeof d.rating === 'number' ? d.rating : 0,
+            rankTier: (d.rankTier as any) || 'bronze',
+            lastActive: typeof d.lastActive === 'number' ? d.lastActive : Date.now(),
+            isOnline: !!d.isOnline,
+            lastLoginDate: String(d.lastDailyDate || '今日'),
+            activity: '学習受講中 ✏️',
+          }));
+
+          setOnlineUsers((prev) => {
+            const map = new Map<string, OnlineUserPresence>();
+            prev.forEach((u) => map.set(u.id, u));
+            firestorePresences.forEach((u) => map.set(u.id, u));
+            return Array.from(map.values());
+          });
+        });
+      } catch {
+        // Fallback to socket presence
+      }
+    }
+
+    return () => {
+      unsubscribeRealtime();
+      if (unsubscribeFirestore) unsubscribeFirestore();
+    };
   }, []);
 
   // Format timestamp to Japanese relative or time string

@@ -16,6 +16,16 @@ import {
 import { realtimePresence } from './utils/multiplayer';
 import { audio } from './utils/audio';
 import { fetchAiQuestion } from './utils/aiQuestionClient';
+import { 
+  auth, 
+  onAuthStateChanged, 
+  loginWithGoogle, 
+  logoutUser, 
+  syncUserStatsToFirestore, 
+  fetchUserStatsFromFirestore, 
+  setOnlineStatus, 
+  FirebaseUser 
+} from './utils/firebase';
 
 type AppPhase = 'home' | 'quiz';
 
@@ -23,6 +33,8 @@ export function App() {
   const [phase, setPhase] = useState<AppPhase>('home');
   const [stats, setStats] = useState<UserStats>(getStoredUserStats);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [currentUserAuth, setCurrentUserAuth] = useState<FirebaseUser | null>(null);
+  const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
 
   // Modals & Quiz Config
   const [showModifierModal, setShowModifierModal] = useState<boolean>(false);
@@ -34,6 +46,72 @@ export function App() {
   const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [activeModifiers, setActiveModifiers] = useState<Modifier[]>([]);
+
+  // 1. Listen for Firebase Auth State Changes & Sync with Firestore
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      setCurrentUserAuth(user);
+      if (user) {
+        setIsSyncingCloud(true);
+        try {
+          const remoteStats = await fetchUserStatsFromFirestore(user.uid);
+          if (remoteStats) {
+            // Merge remote stats with local stats intelligently
+            setStats((prev) => {
+              const merged: UserStats = {
+                ...prev,
+                userId: user.uid,
+                userName: remoteStats.userName || prev.userName || user.displayName || 'うおwりんご会員',
+                avatarUrl: remoteStats.avatarUrl || prev.avatarUrl || user.photoURL || null,
+                energy: Math.max(prev.energy, remoteStats.energy),
+                streak: Math.max(prev.streak, remoteStats.streak),
+                lastDailyDate: remoteStats.lastDailyDate || prev.lastDailyDate,
+                completedSessions: Math.max(prev.completedSessions, remoteStats.completedSessions),
+                perfectSessions: Math.max(prev.perfectSessions, remoteStats.perfectSessions),
+                rating: Math.max(prev.rating || 0, remoteStats.rating || 0),
+                rankTier: remoteStats.rankTier || prev.rankTier,
+                equippedMainGoods: remoteStats.equippedMainGoods || prev.equippedMainGoods,
+                equippedSubGoods: remoteStats.equippedSubGoods || prev.equippedSubGoods,
+                unlockedGoods: Array.from(new Set([...(prev.unlockedGoods || ['pencil', 'eraser']), ...(remoteStats.unlockedGoods || [])])),
+              };
+              saveUserStats(merged);
+              return merged;
+            });
+          } else {
+            // First time login for this Google account: save current progress to Firestore
+            setStats((prev) => {
+              const updated: UserStats = {
+                ...prev,
+                userId: user.uid,
+                userName: prev.userName || user.displayName || 'うおwりんご会員',
+                avatarUrl: prev.avatarUrl || user.photoURL || null,
+              };
+              saveUserStats(updated);
+              syncUserStatsToFirestore(updated, true).catch(console.error);
+              return updated;
+            });
+          }
+          await setOnlineStatus(user.uid, true);
+        } catch (err) {
+          console.warn('Firestore initial sync notice:', err);
+        } finally {
+          setIsSyncingCloud(false);
+        }
+      }
+    });
+
+    const handleBeforeUnload = () => {
+      if (auth.currentUser) {
+        setOnlineStatus(auth.currentUser.uid, false);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      unsubscribeAuth();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   // Identify user with realtime service
   useEffect(() => {
@@ -48,13 +126,35 @@ export function App() {
     }
   }, [stats.userId, stats.userName, stats.avatarUrl, stats.rating, stats.rankTier]);
 
-  // Update storage when stats change
+  // Update storage when stats change, and sync to Firestore if logged in
   const updateStats = (updater: (prev: UserStats) => UserStats) => {
     setStats((prev) => {
       const next = updater(prev);
       saveUserStats(next);
+      if (currentUserAuth) {
+        setIsSyncingCloud(true);
+        syncUserStatsToFirestore(next)
+          .catch(console.error)
+          .finally(() => setIsSyncingCloud(false));
+      }
       return next;
     });
+  };
+
+  const handleLoginWithGoogle = async () => {
+    try {
+      await loginWithGoogle();
+    } catch (error) {
+      console.error('Google Sign-in failed:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const handleToggleSound = () => {
@@ -211,6 +311,10 @@ export function App() {
         {phase === 'home' && (
           <HomeScreen
             stats={stats}
+            currentUserAuth={currentUserAuth}
+            isSyncingCloud={isSyncingCloud}
+            onLoginWithGoogle={handleLoginWithGoogle}
+            onLogout={handleLogout}
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
             onOpenCommunity={() => setShowCommunityModal(true)}
@@ -246,6 +350,9 @@ export function App() {
             currentName={stats.userName || 'うおリンゴ会員'}
             currentAvatar={stats.avatarUrl || null}
             stats={stats}
+            currentUserAuth={currentUserAuth}
+            onLoginWithGoogle={handleLoginWithGoogle}
+            onLogout={handleLogout}
             onSave={handleSaveProfile}
             onClose={() => setShowProfileModal(false)}
           />
