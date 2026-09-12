@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
 
@@ -604,7 +604,7 @@ async function startServer() {
   });
 
   // ==========================================
-  // Gemini AI Handwriting Evaluation Endpoint
+  // Gemini AI Handwriting Evaluation Endpoint (High-Precision OCR)
   // ==========================================
   app.post('/api/ai/judge-handwriting', async (req, res) => {
     try {
@@ -616,12 +616,12 @@ async function startServer() {
 
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        // Fallback response if no API key in dev environment
-        return res.json({
-          recognizedText: expectedAnswer,
-          isCorrect: true,
-          confidence: 0.9,
-          feedback: '素晴らしい手書きの英語です！きれいに書けています！✨',
+        return res.status(503).json({
+          recognizedText: '',
+          isCorrect: false,
+          confidence: 0,
+          feedback: 'Gemini APIキーが設定されていません。',
+          error: true,
         });
       }
 
@@ -638,32 +638,41 @@ async function startServer() {
 
       const acceptableList = Array.from(new Set([
         String(expectedAnswer).trim().toLowerCase(),
-        ...acceptableAnswers.map((a: string) => String(a).trim().toLowerCase())
+        ...acceptableAnswers.map((a: string) => String(a).trim().toLowerCase()),
       ])).filter(Boolean);
 
-      const prompt = `あなたは英語学習アプリ「うおリンゴ」の優しいAI採点先生です。
-子供がアプリの手書きキャンバスに書いた英単語・アルファベットの画像を受け取りました。
+      const prompt = `あなたは英語学習アプリ「うおリンゴ」の専属の精密な手書き文字認識(OCR)および英語スペリング採点AIです。
+日本の小学生・中学生が手書きキャンバスに指やペンで書いたアルファベット・英単語の画像が入力されました。
 
-【問題】：${japanese || '英語で書いてみよう'}
-【期待される正解】：${expectedAnswer}
-【許容される正解リスト】：${acceptableList.join(', ')}
+【問題文（出題意図）】：${japanese || '英語で書いてみよう'}
+【期待される正解（模範解答）】：${expectedAnswer}
+【正解として認める単語リスト】：${acceptableList.join(', ')}
 
-以下の手順で採点を行ってください：
-1. 画像内の手書き文字を注意深く読み取り、何の英単語またはアルファベットとして認識できるか「recognizedText」に抽出してください。
-   - 小中学生の手書きなので、多少の歪み・筆跡のブレ・文字の傾きは寛容に判断してください。
-   - 大文字・小文字は問いません（例: HAPPY, Happy, happy はすべて happy として扱います）。
-2. 認識した単語が期待される正解または許容される正解と一致しているか「isCorrect」(true/false) を判定してください。
-3. 子供のモチベーションが上がるよう、温かく前向きな日本語メッセージ「feedback」（1〜2文）を作成してください。
-   - 正解時: 「すごい！きれいに書けています！」「大正解！スペルもバッチリです！」など
-   - 不正解・スペルミス時: 「惜しい！『〇〇』と書こうとしたかな？正解は『${expectedAnswer}』だよ！もう一度書いてみよう！」など
+以下の手順に沿って、極めて正確かつ公平に判定してください：
 
-必ず以下のJSON形式のみで出力してください（Markdownコードブロック不要）：
-{
-  "recognizedText": "認識された文字列 (例: happy)",
-  "isCorrect": true,
-  "confidence": 0.95,
-  "feedback": "正解です！とても上手に書けています！🎉"
-}`;
+1. 【文字の客観的転記 (Strict OCR)】:
+   - 画像内の筆跡を左から右へ1文字ずつ観察し、紙面に物理的に書かれている文字を忠実に読み取ってください。
+   - 「こう書きたかったのだろう」と模範解答を忖度して当てはめることは絶対に禁止です。実際に書かれた文字をありのまま認識してください。
+   - 大文字・小文字は問いません（例: 'Apple', 'apple', 'APPLE' はいずれも 'apple' とみなします）。
+   - 記号やノイズを除去したアルファベット単語を「recognizedText」に小文字で記録してください。
+   - もし何も書かれていない、ただの線・落書き・円、または判読できない文字の場合は、recognizedTextを "(判読不能)" としてください。
+
+2. 【正誤判定 (Spelling Verification)】:
+   - 「recognizedText」が、期待される正解「${expectedAnswer}」または許容単語「${acceptableList.join(', ')}」と、単語として完全に一致している場合のみ「isCorrect: true」としてください。
+   - 手書き特有の筆跡の僅かなブレ（例: 'o'の上が少し開いている、'r'の右上が少し短い、't'の横棒が少し斜めなど）は、その文字の意図が明白であれば許容します。
+   - ただし、文字の不足（例: 'happy' に対して 'hapy' や 'hap'）、文字の過剰（例: 'happpy'）、別の文字の書き間違い（例: 'cat' に対して 'cot' や 'bat'）、全く異なる単語（例: 'dog' に対して 'cat'）が書かれている場合は、容赦なく「isCorrect: false」にしてください。
+
+3. 【丁寧で具体的な日本語フィードバック (Feedback)】:
+   - 正解時（isCorrect: true）:
+     「『${expectedAnswer}』ときれいに正しく書けました！スペルも完璧です！🎉」など、書けたことを褒めるメッセージ。
+   - スペルミス・文字抜け時（isCorrect: false）:
+     「『〇〇』と読み取れました。正解は『${expectedAnswer}』です。『〇』の文字に気をつけてもう一度書いてみよう！」のように、どこが違ったかを具体的に指摘。
+   - 全く違う単語を書いた時（isCorrect: false）:
+     「『〇〇』と書かれています。この問題の正解は『${expectedAnswer}』だよ！」
+   - 判読不能や落書きの時（isCorrect: false）:
+     「文字がはっきりと読み取れませんでした。4本線ノートを参考に、大きくていねいにアルファベットを書いてみよう！」
+
+指定されたスキーマに従ってJSONを出力してください。`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
@@ -682,35 +691,67 @@ async function startServer() {
         },
         config: {
           responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              rawTranscription: {
+                type: Type.STRING,
+                description: 'Exact physical transcription of letters seen on the image from left to right.',
+              },
+              recognizedText: {
+                type: Type.STRING,
+                description: 'Cleaned English word recognized in lowercase (e.g. happy, book, cat, or (判読不能)).',
+              },
+              isCorrect: {
+                type: Type.BOOLEAN,
+                description: 'True only if recognized letters form the correct target word.',
+              },
+              confidence: {
+                type: Type.NUMBER,
+                description: 'Recognition confidence score between 0.0 and 1.0.',
+              },
+              feedback: {
+                type: Type.STRING,
+                description: 'Helpful and specific feedback message in Japanese.',
+              },
+            },
+            required: ['rawTranscription', 'recognizedText', 'isCorrect', 'feedback'],
+          },
+          temperature: 0.1,
         },
       });
 
       const text = response.text ? response.text.trim() : '';
       if (!text) {
-        return res.json({
-          recognizedText: expectedAnswer,
-          isCorrect: true,
-          confidence: 0.8,
-          feedback: 'よく頑張って書けました！Nice try! 🎉',
+        return res.status(500).json({
+          recognizedText: '',
+          isCorrect: false,
+          confidence: 0,
+          feedback: 'AIからの判定結果が取得できませんでした。もう一度お試しください。',
         });
       }
 
       const result = JSON.parse(text);
+      const recognized = String(result.recognizedText || '').trim().toLowerCase();
+      const isActuallyCorrect = Boolean(result.isCorrect) && (
+        acceptableList.includes(recognized) || recognized === String(expectedAnswer).trim().toLowerCase()
+      );
+
       return res.json({
+        rawTranscription: result.rawTranscription || '',
         recognizedText: result.recognizedText || '',
-        isCorrect: Boolean(result.isCorrect),
-        confidence: typeof result.confidence === 'number' ? result.confidence : 0.9,
-        feedback: result.feedback || '判定が完了しました！',
+        isCorrect: isActuallyCorrect,
+        confidence: typeof result.confidence === 'number' ? result.confidence : (isActuallyCorrect ? 0.95 : 0.4),
+        feedback: result.feedback || (isActuallyCorrect ? '正解です！綺麗に書けました！' : `正解は「${expectedAnswer}」です。もう一度書いてみよう！`),
       });
     } catch (err: any) {
       console.error('[AI Handwriting Judgment Error]:', err?.message || err);
-      // Fallback gracefully so user can continue
-      const { expectedAnswer } = req.body;
-      return res.json({
-        recognizedText: expectedAnswer || '',
-        isCorrect: true,
-        confidence: 0.85,
-        feedback: '手書きを認識しました！とても意欲的で素晴らしいです！🌟',
+      return res.status(500).json({
+        recognizedText: '',
+        isCorrect: false,
+        confidence: 0,
+        feedback: 'AI採点サーバーとの通信中にエラーが発生しました。もう一度「答え合わせ」を押してください。',
+        error: true,
       });
     }
   });

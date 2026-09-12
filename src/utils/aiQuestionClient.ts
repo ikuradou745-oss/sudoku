@@ -132,7 +132,7 @@ export async function judgeHandwritingWithAi(params: {
 }): Promise<HandwritingJudgeResult> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
     const res = await fetch('/api/ai/judge-handwriting', {
       method: 'POST',
@@ -147,9 +147,19 @@ export async function judgeHandwritingWithAi(params: {
       if (data && typeof data.isCorrect === 'boolean') {
         return {
           recognizedText: data.recognizedText || '',
-          isCorrect: data.isCorrect,
+          isCorrect: Boolean(data.isCorrect),
           confidence: data.confidence ?? 0.9,
           feedback: data.feedback || '',
+        };
+      }
+    } else {
+      const errData = await res.json().catch(() => null);
+      if (errData && errData.feedback) {
+        return {
+          recognizedText: '',
+          isCorrect: false,
+          confidence: 0,
+          feedback: errData.feedback,
         };
       }
     }
@@ -157,11 +167,11 @@ export async function judgeHandwritingWithAi(params: {
     console.warn('AI handwriting judge fetch warning:', err);
   }
 
-  // Graceful fallback
+  // If server is unreachable or timed out
   return {
-    recognizedText: params.expectedAnswer,
-    isCorrect: true,
-    confidence: 0.85,
-    feedback: '手書きの文字をしっかり認識しました！よく頑張りました！✨',
+    recognizedText: '',
+    isCorrect: false,
+    confidence: 0,
+    feedback: 'AI判定サーバーとの通信に失敗しました。電波の良い環境でもう一度「答え合わせ」を押してください。',
   };
 }
