@@ -27,17 +27,18 @@ jobs:
           node-version: 20
 
       - name: Install Dependencies
-        run: npm install --include=dev
+        run: npm install
 
       - name: Build Vite App
         run: |
-          npx vite build --base=/sudoku/
+          npx vite build --base=./
           touch ./dist/.nojekyll
           cp ./dist/index.html ./dist/404.html
 
       # 1. Deploy to 'gh-pages' branch (Works with "Deploy from a branch")
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
+        continue-on-error: true
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist

@@ -2,8 +2,8 @@ import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-// Automatically handle GitHub Pages repository subpath /sudoku/
-const base = process.env.BASE_PATH || (process.env.GITHUB_ACTIONS ? '/sudoku/' : './');
+// Relative base path works universally across root domain and any GitHub Pages repo subpath
+const base = process.env.BASE_PATH || './';
 
 function htmlEntryPlugin(): Plugin {
   return {
@@ -16,17 +16,17 @@ function htmlEntryPlugin(): Plugin {
           // Dev server: strip static bundle tags and inject live source entry
           return html
             .replace(
-              /<link rel="stylesheet" crossorigin href="(\.\/assets\/index\.css|\/assets\/index\.css)">/,
+              /<link rel="stylesheet" crossorigin href="(\.\/assets\/index\.css[^"]*|\/assets\/index\.css[^"]*)">/,
               ''
             )
             .replace(
-              /<script type="module" crossorigin src="(\.\/assets\/index\.js|\/assets\/index\.js)"><\/script>/,
+              /<script type="module" crossorigin src="(\.\/assets\/index\.js[^"]*|\/assets\/index\.js[^"]*)"><\/script>/,
               '<script type="module" src="/src/main.tsx"></script>'
             );
         }
         // Build mode: replace bundle script with source entry so Vite can compile it
         return html.replace(
-          /<script type="module" crossorigin src="(\.\/assets\/index\.js|\/assets\/index\.js)"><\/script>/,
+          /<script type="module" crossorigin src="(\.\/assets\/index\.js[^"]*|\/assets\/index\.js[^"]*)"><\/script>/,
           '<script type="module" src="/src/main.tsx"></script>'
         );
       },
