@@ -208,41 +208,6 @@ export function HomeScreen({
 
       {/* Main Action Buttons */}
       <div className="space-y-3.5">
-        {/* 0. ストーリーモード (全200ステージ) */}
-        <button
-          id="start-story-btn"
-          onClick={() => {
-            audio.playTap();
-            onStartStory();
-          }}
-          className="duo-btn duo-btn-blue w-full p-4.5 rounded-2xl flex items-center justify-between shadow-md group cursor-pointer"
-        >
-          <div className="flex items-center gap-3.5 text-left">
-            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 text-2xl">
-              🗺️
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-black text-white">
-                  ストーリーモード
-                </span>
-                <span className="text-[10px] font-black bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] px-2 py-0.5 rounded-full shadow-2xs">
-                  全200ステージ
-                </span>
-              </div>
-              <div className="text-xs font-bold text-white/90 mt-0.5">
-                ライフ1の真剣勝負！マイルストーンでゴールド称号＆鉛筆削り
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
-              Stage {stats.storyCurrentStage || 1}/200
-            </span>
-            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
-          </div>
-        </button>
-
         {/* 1. 学習を始める */}
         <button
           id="start-practice-btn"
@@ -333,6 +298,41 @@ export function HomeScreen({
                 <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
               </>
             )}
+          </div>
+        </button>
+
+        {/* 3. ストーリーモード (デイリーセットの下・黄色のボタン) */}
+        <button
+          id="start-story-btn"
+          onClick={() => {
+            audio.playTap();
+            onStartStory();
+          }}
+          className="duo-btn duo-btn-yellow w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 text-left">
+            <div className="w-11 h-11 rounded-xl bg-black/15 flex items-center justify-center text-white shrink-0 text-2xl">
+              🗺️
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-black text-white">
+                  ストーリーモード
+                </span>
+                <span className="text-[10px] font-black bg-white/90 text-[#B45309] px-2 py-0.5 rounded-full shadow-2xs">
+                  全200ステージ
+                </span>
+              </div>
+              <div className="text-xs font-bold text-white/95 mt-0.5">
+                ライフ1の真剣勝負！マイルストーンでゴールド称号＆鉛筆削り
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-black bg-black/20 text-white px-2.5 py-1 rounded-full">
+              Stage {stats.storyCurrentStage || 1}/200
+            </span>
+            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>
         </button>
 
