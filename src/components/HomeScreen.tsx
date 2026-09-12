@@ -22,11 +22,13 @@ import {
 import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
 import { subscribeToFirebasePresence } from '../utils/firebase';
+import { StyledUserName } from './StyledUserName';
 
 interface HomeScreenProps {
   stats: UserStats;
   onStartPractice: () => void;
   onStartDaily: () => void;
+  onStartStory: () => void;
   onOpenCommunity: () => void;
   onOpenGoods: () => void;
   onToggleSound: () => void;
@@ -38,6 +40,7 @@ export function HomeScreen({
   stats,
   onStartPractice,
   onStartDaily,
+  onStartStory,
   onOpenCommunity,
   onOpenGoods,
   onToggleSound,
@@ -181,8 +184,14 @@ export function HomeScreen({
           <span>🐟🍎</span>
           <span>うおwりんご</span>
         </h1>
-        <p className="text-sm font-bold text-[#777777] mt-1">
-          {stats.userName ? `ようこそ、${stats.userName}さん！` : '問題を解いて⚡️コインをあつめよう！'}
+        <p className="text-sm font-bold text-[#777777] mt-1 flex items-center justify-center gap-1.5">
+          <span>ようこそ、</span>
+          <StyledUserName
+            name={stats.userName || 'うおwりんご会員'}
+            titleId={stats.equippedTitle}
+            showBadge
+          />
+          <span>さん！</span>
         </p>
 
         {/* User Rank Card Pill */}
@@ -199,6 +208,41 @@ export function HomeScreen({
 
       {/* Main Action Buttons */}
       <div className="space-y-3.5">
+        {/* 0. ストーリーモード (全200ステージ) */}
+        <button
+          id="start-story-btn"
+          onClick={() => {
+            audio.playTap();
+            onStartStory();
+          }}
+          className="duo-btn duo-btn-blue w-full p-4.5 rounded-2xl flex items-center justify-between shadow-md group cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 text-left">
+            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 text-2xl">
+              🗺️
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-black text-white">
+                  ストーリーモード
+                </span>
+                <span className="text-[10px] font-black bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] px-2 py-0.5 rounded-full shadow-2xs">
+                  全200ステージ
+                </span>
+              </div>
+              <div className="text-xs font-bold text-white/90 mt-0.5">
+                ライフ1の真剣勝負！マイルストーンでゴールド称号＆鉛筆削り
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-black bg-white/25 text-white px-2.5 py-1 rounded-full">
+              Stage {stats.storyCurrentStage || 1}/200
+            </span>
+            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
+          </div>
+        </button>
+
         {/* 1. 学習を始める */}
         <button
           id="start-practice-btn"

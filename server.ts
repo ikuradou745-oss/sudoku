@@ -641,38 +641,32 @@ async function startServer() {
         ...acceptableAnswers.map((a: string) => String(a).trim().toLowerCase()),
       ])).filter(Boolean);
 
-      const prompt = `あなたは英語学習アプリ「うおリンゴ」の専属の精密な手書き文字認識(OCR)および英語スペリング採点AIです。
-日本の小学生・中学生が手書きキャンバスに指やペンで書いたアルファベット・英単語の画像が入力されました。
+      const prompt = `あなたは英語学習アプリ「うおリンゴ」の専属の極めて精密な手書き英語文字認識(OCR)および英語スペリング採点AIです。
+日本の小・中学生が手書きキャンバスに指やペンで書いた英単語の画像が送られてきました。
 
-【問題文（出題意図）】：${japanese || '英語で書いてみよう'}
-【期待される正解（模範解答）】：${expectedAnswer}
-【正解として認める単語リスト】：${acceptableList.join(', ')}
+【出題日本語】：${japanese || '英語で書いてみよう'}
+【模範正解】：${expectedAnswer}
+【許容される正解リスト】：${acceptableList.join(', ')}
 
-以下の手順に沿って、極めて正確かつ公平に判定してください：
+以下の基準に従って、高精度かつ公平に判定してください：
 
-1. 【文字の客観的転記 (Strict OCR)】:
-   - 画像内の筆跡を左から右へ1文字ずつ観察し、紙面に物理的に書かれている文字を忠実に読み取ってください。
-   - 「こう書きたかったのだろう」と模範解答を忖度して当てはめることは絶対に禁止です。実際に書かれた文字をありのまま認識してください。
-   - 大文字・小文字は問いません（例: 'Apple', 'apple', 'APPLE' はいずれも 'apple' とみなします）。
-   - 記号やノイズを除去したアルファベット単語を「recognizedText」に小文字で記録してください。
-   - もし何も書かれていない、ただの線・落書き・円、または判読できない文字の場合は、recognizedTextを "(判読不能)" としてください。
+1. 【文字の精密認識 (High-Precision OCR)】:
+   - 画像内に書かれたアルファベットの筆跡を左から右へ順に読み取ってください。
+   - 小学生・中学生の手書き特有の筆跡（ブロック体、丸文字、大文字小文字の混在、最初の文字だけ大文字、文字同士の間隔が少し広い・狭いなど）を自然に正しく認識してください。
+   - 点（'i'や'j'の点、ピリオド）、横棒（'t'や'f'の横棒）が少し離れていても1つの文字として統合して認識してください。
+   - 記号や空白を除いた純粋なアルファベット文字列を小文字で「recognizedText」に記録してください（例: "happy", "book", "dog"）。空白やハイフンは含めないでください。
+   - 何も書かれていない、ただの点や落書き線のみの場合は "(判読不能)" としてください。
 
-2. 【正誤判定 (Spelling Verification)】:
-   - 「recognizedText」が、期待される正解「${expectedAnswer}」または許容単語「${acceptableList.join(', ')}」と、単語として完全に一致している場合のみ「isCorrect: true」としてください。
-   - 手書き特有の筆跡の僅かなブレ（例: 'o'の上が少し開いている、'r'の右上が少し短い、't'の横棒が少し斜めなど）は、その文字の意図が明白であれば許容します。
-   - ただし、文字の不足（例: 'happy' に対して 'hapy' や 'hap'）、文字の過剰（例: 'happpy'）、別の文字の書き間違い（例: 'cat' に対して 'cot' や 'bat'）、全く異なる単語（例: 'dog' に対して 'cat'）が書かれている場合は、容赦なく「isCorrect: false」にしてください。
+2. 【正誤判定 (Spelling & Intent Verification)】:
+   - 読み取った英単語が、模範正解「${expectedAnswer}」または許容リスト「${acceptableList.join(', ')}」のスペルと一致していれば「isCorrect: true」としてください。大文字・小文字の区別は問わず正解とします。
+   - 文字の不足（例: 'book' に対して 'bok' や 'boo'）、不要な文字の混入、スペルミス、全く異なる単語の場合は「isCorrect: false」にしてください。
 
-3. 【丁寧で具体的な日本語フィードバック (Feedback)】:
-   - 正解時（isCorrect: true）:
-     「『${expectedAnswer}』ときれいに正しく書けました！スペルも完璧です！🎉」など、書けたことを褒めるメッセージ。
-   - スペルミス・文字抜け時（isCorrect: false）:
-     「『〇〇』と読み取れました。正解は『${expectedAnswer}』です。『〇』の文字に気をつけてもう一度書いてみよう！」のように、どこが違ったかを具体的に指摘。
-   - 全く違う単語を書いた時（isCorrect: false）:
-     「『〇〇』と書かれています。この問題の正解は『${expectedAnswer}』だよ！」
-   - 判読不能や落書きの時（isCorrect: false）:
-     「文字がはっきりと読み取れませんでした。4本線ノートを参考に、大きくていねいにアルファベットを書いてみよう！」
+3. 【子供向けの優しく具体的な日本語フィードバック (Feedback)】:
+   - 正解時: 「『${expectedAnswer}』ときれいに正しく書けました！スペルも完璧です！🎉」
+   - 1文字間違い・スペルミス時: 「『〇〇』と書かれています。正解は『${expectedAnswer}』です。『〇』のスペルに気をつけてもう一度書いてみよう！」
+   - 判読不能・未記入時: 「文字がはっきりと読み取れませんでした。大きくていねいにアルファベットを書いてみよう！」
 
-指定されたスキーマに従ってJSONを出力してください。`;
+指定されたJSONスキーマに従って出力してください。`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
@@ -700,7 +694,7 @@ async function startServer() {
               },
               recognizedText: {
                 type: Type.STRING,
-                description: 'Cleaned English word recognized in lowercase (e.g. happy, book, cat, or (判読不能)).',
+                description: 'Cleaned English word recognized in lowercase without spaces (e.g. happy, book, cat, or (判読不能)).',
               },
               isCorrect: {
                 type: Type.BOOLEAN,
@@ -732,17 +726,26 @@ async function startServer() {
       }
 
       const result = JSON.parse(text);
-      const recognized = String(result.recognizedText || '').trim().toLowerCase();
-      const isActuallyCorrect = Boolean(result.isCorrect) && (
-        acceptableList.includes(recognized) || recognized === String(expectedAnswer).trim().toLowerCase()
-      );
+      const rawRecognized = String(result.recognizedText || '').trim();
+      const cleanRecognized = rawRecognized.replace(/[^a-zA-Z]/g, '').toLowerCase();
+
+      const normalizedTargets = [
+        String(expectedAnswer).replace(/[^a-zA-Z]/g, '').toLowerCase(),
+        ...acceptableList.map((a) => a.replace(/[^a-zA-Z]/g, '').toLowerCase()),
+      ].filter(Boolean);
+
+      // Matches if normalized letters match target OR Gemini explicitly evaluated as correct
+      const isWordMatch = cleanRecognized.length > 0 && normalizedTargets.includes(cleanRecognized);
+      const isActuallyCorrect = isWordMatch || (Boolean(result.isCorrect) && cleanRecognized.length > 0);
+
+      const finalRecognized = cleanRecognized || rawRecognized;
 
       return res.json({
         rawTranscription: result.rawTranscription || '',
-        recognizedText: result.recognizedText || '',
+        recognizedText: finalRecognized,
         isCorrect: isActuallyCorrect,
         confidence: typeof result.confidence === 'number' ? result.confidence : (isActuallyCorrect ? 0.95 : 0.4),
-        feedback: result.feedback || (isActuallyCorrect ? '正解です！綺麗に書けました！' : `正解は「${expectedAnswer}」です。もう一度書いてみよう！`),
+        feedback: result.feedback || (isActuallyCorrect ? `「${expectedAnswer}」ときれいに書けました！正解です！🎉` : `正解は「${expectedAnswer}」です。もう一度書いてみよう！`),
       });
     } catch (err: any) {
       console.error('[AI Handwriting Judgment Error]:', err?.message || err);

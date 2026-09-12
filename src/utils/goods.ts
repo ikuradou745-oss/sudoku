@@ -51,6 +51,15 @@ export const SUB_GOODS: Record<SubGoodsId, GoodsItem> = {
     description: '500⚡️で購入できるエナジー帽子！',
     abilityDetail: '装備しているだけでもらえる⚡️が50%増えます！（レッスンやランクマッチなど、すべての獲得⚡️が常に1.5倍にアップ）',
   },
+  pencil_sharpener: {
+    id: 'pencil_sharpener',
+    type: 'sub',
+    name: '鉛筆削り',
+    icon: '⚙️✏️',
+    price: 0,
+    description: 'ストーリー200ステージ完全到達で獲得できる伝説のサブグッズ！',
+    abilityDetail: 'メインの「えんぴつ」と一緒に使うと効果を発揮！えんぴつは本来100%で技を発動できますが、50%貯まると技を発動できるようになります！',
+  },
 };
 
 export function getAllGoods(): GoodsItem[] {

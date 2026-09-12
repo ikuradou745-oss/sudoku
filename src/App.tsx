@@ -5,6 +5,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { CommunityModal } from './components/CommunityModal';
 import { QuizSession } from './components/QuizSession';
 import { GoodsModal } from './components/GoodsModal';
+import { StoryModeScreen } from './components/StoryModeScreen';
 import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
@@ -17,8 +18,9 @@ import { realtimePresence } from './utils/multiplayer';
 import { audio } from './utils/audio';
 import { fetchAiQuestion } from './utils/aiQuestionClient';
 import { reportFirebasePresence } from './utils/firebase';
+import { getStoryStageQuestions, STORY_MILESTONES } from './utils/storyStages';
 
-type AppPhase = 'home' | 'quiz';
+type AppPhase = 'home' | 'quiz' | 'story';
 
 export function App() {
   const [phase, setPhase] = useState<AppPhase>('home');
@@ -32,9 +34,10 @@ export function App() {
   const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
 
   // Solo Quiz State
-  const [quizMode, setQuizMode] = useState<'practice' | 'daily'>('practice');
+  const [quizMode, setQuizMode] = useState<'practice' | 'daily' | 'story'>('practice');
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [activeModifiers, setActiveModifiers] = useState<Modifier[]>([]);
+  const [activeStoryStage, setActiveStoryStage] = useState<number>(1);
 
   // 1. Firebase Online Presence & Daily Login Heartbeat (No Google Login Required)
   useEffect(() => {
@@ -176,7 +179,7 @@ export function App() {
     setPhase('quiz');
   };
 
-  // 6. Handle Solo Quiz Finish
+  // 6. Handle Solo / Story Quiz Finish
   const handleQuizFinish = (result: {
     completed: boolean;
     reward: number;
@@ -192,6 +195,29 @@ export function App() {
           : prev.streak;
         const nextLastDaily = quizMode === 'daily' ? getCurrentDailyCycleKey() : prev.lastDailyDate;
 
+        let nextStoryStage = prev.storyCurrentStage || 1;
+        let nextUnlockedGoods = prev.unlockedGoods || ['pencil', 'eraser'];
+        let nextUnlockedTitles = prev.unlockedTitles || ['first_step'];
+        let nextClaimedMilestones = prev.claimedStoryMilestones || [];
+
+        if (quizMode === 'story') {
+          if (activeStoryStage >= nextStoryStage) {
+            nextStoryStage = Math.min(201, activeStoryStage + 1);
+          }
+
+          // Check milestone reward at activeStoryStage (50, 100, 150, 200)
+          const milestone = STORY_MILESTONES[activeStoryStage];
+          if (milestone && !nextClaimedMilestones.includes(activeStoryStage)) {
+            nextClaimedMilestones = [...nextClaimedMilestones, activeStoryStage];
+            if (milestone.goodsId && !nextUnlockedGoods.includes(milestone.goodsId as any)) {
+              nextUnlockedGoods = [...nextUnlockedGoods, milestone.goodsId as any];
+            }
+            if (milestone.titleId && !nextUnlockedTitles.includes(milestone.titleId)) {
+              nextUnlockedTitles = [...nextUnlockedTitles, milestone.titleId];
+            }
+          }
+        }
+
         return {
           ...prev,
           energy: nextEnergy,
@@ -199,22 +225,27 @@ export function App() {
           lastDailyDate: nextLastDaily,
           completedSessions: prev.completedSessions + 1,
           perfectSessions: prev.perfectSessions + (result.perfect ? 1 : 0),
+          storyCurrentStage: nextStoryStage,
+          unlockedGoods: nextUnlockedGoods,
+          unlockedTitles: nextUnlockedTitles,
+          claimedStoryMilestones: nextClaimedMilestones,
         };
       });
     }
-    setPhase('home');
+    setPhase(quizMode === 'story' ? 'story' : 'home');
   };
 
   const handleExitQuiz = () => {
-    setPhase('home');
+    setPhase(quizMode === 'story' ? 'story' : 'home');
   };
 
   // Profile Save
-  const handleSaveProfile = (name: string, avatarDataUrl: string) => {
+  const handleSaveProfile = (name: string, avatarDataUrl: string, titleId?: string) => {
     updateStats((prev) => ({
       ...prev,
       userName: name,
       avatarUrl: avatarDataUrl,
+      equippedTitle: titleId !== undefined ? titleId : prev.equippedTitle,
     }));
     setShowProfileModal(false);
   };
@@ -259,6 +290,7 @@ export function App() {
         {phase === 'home' && (
           <HomeScreen
             stats={stats}
+            onStartStory={() => setPhase('story')}
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
             onOpenCommunity={() => setShowCommunityModal(true)}
@@ -266,6 +298,21 @@ export function App() {
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             soundEnabled={soundEnabled}
+          />
+        )}
+
+        {phase === 'story' && (
+          <StoryModeScreen
+            stats={stats}
+            onBack={() => setPhase('home')}
+            onStartStage={(stageNumber) => {
+              setActiveStoryStage(stageNumber);
+              const questions = getStoryStageQuestions(stageNumber);
+              setQuizQuestions(questions);
+              setQuizMode('story');
+              setActiveModifiers([]);
+              setPhase('quiz');
+            }}
           />
         )}
 

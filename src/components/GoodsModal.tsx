@@ -5,7 +5,8 @@ import {
   Zap,
   Sparkles,
   ShieldCheck,
-  ChevronRight
+  ChevronRight,
+  Lock
 } from 'lucide-react';
 import { UserStats, GoodsItem, MainGoodsId, SubGoodsId } from '../types';
 import { getAllGoods } from '../utils/goods';
@@ -49,6 +50,12 @@ const GOODS_VISUALS: Record<string, { appearanceTitle: string; appearanceNote: s
     appearanceNote: '身につけると学習効率が格段にアップする魔法の帽子。装備しているだけでレッスンや試合で獲得できる⚡️が常に50%増加する。',
     badgeColor: 'text-[#D97706] bg-[#FFFBEB] border-[#FDE68A]',
     bgGradient: 'from-[#FFFBEB] to-[#FEF3C7]',
+  },
+  pencil_sharpener: {
+    appearanceTitle: '電動・高機能 鉛筆削り',
+    appearanceNote: 'えんぴつと強力なシナジーを発揮する最高峰の文房具！芯を極限まで研ぎ澄ますことで、えんぴつの技が本来100%必要なところ、なんと半分の50%で発動できるようになる！',
+    badgeColor: 'text-[#DC2626] bg-[#FEF2F2] border-[#FECACA]',
+    bgGradient: 'from-[#FFF1F2] to-[#FFE4E6]',
   },
 };
 
@@ -339,6 +346,11 @@ export function GoodsModal({
                   <span>{selectedGoods.icon}</span>
                   <span>このグッズを装備する</span>
                 </button>
+              ) : selectedGoods.id === 'pencil_sharpener' ? (
+                <div className="w-full py-3.5 px-4 rounded-2xl bg-[#FFF1F2] border-2 border-[#FECACA] text-[#DC2626] font-black text-xs sm:text-sm flex items-center justify-center gap-2 text-center">
+                  <Lock className="w-4 h-4 shrink-0" />
+                  <span>ストーリー200ステージ完全制覇で獲得可能！ (ショップ購入不可)</span>
+                </div>
               ) : (
                 <button
                   id="buy-selected-goods-btn"

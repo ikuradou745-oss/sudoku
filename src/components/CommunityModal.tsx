@@ -10,6 +10,7 @@ import { OnlineUserPresence, UserStats } from '../types';
 import { realtimePresence } from '../utils/multiplayer';
 import { audio } from '../utils/audio';
 import { subscribeToFirebasePresence } from '../utils/firebase';
+import { StyledUserName } from './StyledUserName';
 
 interface CommunityModalProps {
   currentUser: UserStats;
@@ -250,9 +251,12 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                       {/* Name */}
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-black text-[#3C3C3C] max-w-[160px] sm:max-w-[240px] truncate">
-                            {user.name}
-                          </span>
+                          <StyledUserName
+                            name={user.name}
+                            titleId={user.titleId || (user.id === currentUser.userId ? currentUser.equippedTitle : undefined)}
+                            showBadge
+                            className="max-w-[180px] sm:max-w-[260px]"
+                          />
                         </div>
                         {user.activity && (
                           <div className="mt-0.5">
@@ -318,9 +322,12 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
                       {/* Name */}
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-black text-[#3C3C3C] max-w-[160px] sm:max-w-[240px] truncate">
-                            {user.name}
-                          </span>
+                          <StyledUserName
+                            name={user.name}
+                            titleId={user.titleId || (isMe ? currentUser.equippedTitle : 'today_login')}
+                            showBadge
+                            className="max-w-[180px] sm:max-w-[260px]"
+                          />
                           {isMe && (
                             <span className="text-[10px] font-black bg-[#FF9600] text-white px-1.5 py-0.2 rounded-md">
                               あなた

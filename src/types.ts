@@ -45,7 +45,7 @@ export interface Modifier {
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
 
 export type MainGoodsId = 'pencil' | 'marker';
-export type SubGoodsId = 'eraser' | 'ruler' | 'hat';
+export type SubGoodsId = 'eraser' | 'ruler' | 'hat' | 'pencil_sharpener';
 
 export interface GoodsItem {
   id: MainGoodsId | SubGoodsId;
@@ -79,6 +79,12 @@ export interface UserStats {
   equippedMainGoods?: MainGoodsId;
   equippedSubGoods?: SubGoodsId;
   unlockedGoods?: string[];
+  // Titles System
+  equippedTitle?: string;
+  unlockedTitles?: string[];
+  // Story Mode System (1~200 stages)
+  storyCurrentStage?: number; // 1 to 200
+  claimedStoryMilestones?: number[]; // [50, 100, 150, 200]
   // Rewards & Codes
   claimedBonusCodes?: string[];
   hasOpenedRewardModal?: boolean;
@@ -94,6 +100,7 @@ export interface OnlineUserPresence {
   isOnline: boolean;
   lastLoginDate: string; // YYYY-MM-DD
   activity?: string; // e.g. "レッスン受講中 ✏️", "単語練習中 📖"
+  titleId?: string;
 }
 
 export interface LobbyUser {

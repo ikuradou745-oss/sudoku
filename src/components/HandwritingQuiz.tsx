@@ -264,7 +264,7 @@ export function HandwritingQuiz({
     setJudgeResult(null);
   };
 
-  // Export high-resolution, high-contrast, perfectly-centered OCR image for Gemini
+  // Export high-resolution, high-contrast, non-distorted OCR image for Gemini
   const exportForOcr = (): string | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -275,7 +275,7 @@ export function HandwritingQuiz({
     const penStrokes = strokes.filter((s) => s.tool === 'pen');
     const allPenPoints = penStrokes.flatMap((s) => s.points);
 
-    if (allPenPoints.length < 6) {
+    if (allPenPoints.length < 2) {
       return null;
     }
 
@@ -294,77 +294,49 @@ export function HandwritingQuiz({
     const strokeWidth = maxX - minX;
     const strokeHeight = maxY - minY;
 
-    // Accidental single tap or tiny speck
-    if (strokeWidth < 12 && strokeHeight < 12) {
+    // Accidental speck with almost no dimension and very few points
+    if (strokeWidth < 6 && strokeHeight < 6 && allPenPoints.length < 3) {
       return null;
     }
 
-    // Target offscreen canvas: 800 x 300 (standardized, high resolution, 100% white background)
+    // High-resolution canvas with exact 1:1 aspect ratio preserving natural handwriting geometry
+    const scale = 2.0; // 2x crispness
     const ocrCanvas = document.createElement('canvas');
-    ocrCanvas.width = 800;
-    ocrCanvas.height = 300;
+    ocrCanvas.width = Math.round(rect.width * scale);
+    ocrCanvas.height = Math.round(rect.height * scale);
     const ctx = ocrCanvas.getContext('2d');
     if (!ctx) return null;
 
-    // 1. Pure solid white background (zero alpha, prevents dark-canvas inversion)
+    // Pure solid white background
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, 800, 300);
+    ctx.fillRect(0, 0, ocrCanvas.width, ocrCanvas.height);
 
-    // 2. Faint reference lines for the AI (gives baseline orientation)
-    const scaleX = 800 / rect.width;
-    const scaleY = 300 / rect.height;
+    ctx.scale(scale, scale);
 
-    const centerY = 300 * 0.52;
-    const lineSpacing = Math.min(32 * scaleY, Math.max(22 * scaleY, 300 * 0.16));
-
-    const line1Y = centerY - lineSpacing * 1.5;
-    const line2Y = centerY - lineSpacing * 0.5;
-    const line3Y = centerY + lineSpacing * 0.5;
-    const line4Y = centerY + lineSpacing * 1.5;
-
-    ctx.lineWidth = 1.0;
-    ctx.strokeStyle = '#E2E8F0';
-    ctx.beginPath();
-    ctx.moveTo(20, line1Y);
-    ctx.lineTo(780, line1Y);
-    ctx.moveTo(20, line4Y);
-    ctx.lineTo(780, line4Y);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#BAE6FD';
-    ctx.setLineDash([8, 8]);
-    ctx.beginPath();
-    ctx.moveTo(20, line2Y);
-    ctx.lineTo(780, line2Y);
-    ctx.stroke();
-
-    ctx.strokeStyle = '#FECDD3';
-    ctx.setLineDash([]);
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(20, line3Y);
-    ctx.lineTo(780, line3Y);
-    ctx.stroke();
-
-    // 3. Draw strokes scaled into OCR canvas
+    // Draw all strokes in exact chronological order with high contrast
     for (const s of strokes) {
       if (s.points.length === 0) continue;
-      ctx.beginPath();
-      if (s.tool === 'eraser') {
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 32;
-      } else {
-        ctx.strokeStyle = '#000000'; // Pure high-contrast black
-        ctx.lineWidth = 8;
-      }
+
+      const isEraser = s.tool === 'eraser';
+      ctx.strokeStyle = isEraser ? '#FFFFFF' : '#000000';
+      ctx.fillStyle = isEraser ? '#FFFFFF' : '#000000';
+      ctx.lineWidth = isEraser ? 32 : 6.5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      ctx.moveTo(s.points[0].x * scaleX, s.points[0].y * scaleY);
-      for (let i = 1; i < s.points.length; i++) {
-        ctx.lineTo(s.points[i].x * scaleX, s.points[i].y * scaleY);
+      if (s.points.length === 1) {
+        // Single point / dot (e.g., dot on 'i' or 'j')
+        ctx.beginPath();
+        ctx.arc(s.points[0].x, s.points[0].y, isEraser ? 16 : 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(s.points[0].x, s.points[0].y);
+        for (let i = 1; i < s.points.length; i++) {
+          ctx.lineTo(s.points[i].x, s.points[i].y);
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
     }
 
     return ocrCanvas.toDataURL('image/png');

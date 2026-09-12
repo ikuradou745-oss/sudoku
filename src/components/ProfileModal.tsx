@@ -11,13 +11,17 @@ import {
   User, 
   Grid,
   Sparkles,
-  Flame
+  Flame,
+  Award,
+  Lock
 } from 'lucide-react';
 import { audio } from '../utils/audio';
 
 import { UserStats } from '../types';
 import { getRankInfo } from '../utils/rank';
 import { getEffectiveDailyStreak, getDailyStreakMultiplier } from '../utils/storage';
+import { getAllTitles } from '../utils/titles';
+import { StyledUserName } from './StyledUserName';
 
 type GridSize = 16 | 32 | 64 | 'smooth';
 type DrawingTool = 'pen' | 'line' | 'fill' | 'eraser';
@@ -26,7 +30,7 @@ interface ProfileModalProps {
   currentName: string;
   currentAvatar: string | null;
   stats?: UserStats;
-  onSave: (name: string, avatarDataUrl: string) => void;
+  onSave: (name: string, avatarDataUrl: string, titleId?: string) => void;
   onClose: () => void;
 }
 
@@ -46,6 +50,7 @@ export function ProfileModal({
   onClose,
 }: ProfileModalProps) {
   const [name, setName] = useState<string>(currentName || 'うおwりんご会員');
+  const [selectedTitle, setSelectedTitle] = useState<string>(stats?.equippedTitle || 'beginner');
   const [gridSize, setGridSize] = useState<GridSize>(32);
   const [selectedTool, setSelectedTool] = useState<DrawingTool>('pen');
   const [currentColor, setCurrentColor] = useState<string>('#58CC02');
@@ -411,7 +416,7 @@ export function ProfileModal({
     if (!canvas) return;
     const dataUrl = canvas.toDataURL('image/png');
     const trimmedName = name.trim().slice(0, 12) || '学習者';
-    onSave(trimmedName, dataUrl);
+    onSave(trimmedName, dataUrl, selectedTitle);
   };
 
   return (
@@ -521,7 +526,98 @@ export function ProfileModal({
           />
         </div>
 
-        {/* 2. Custom Icon Canvas Editor Section */}
+        {/* 2. Title (称号) Customization & Name Color Section */}
+        <div className="mb-5 p-4 rounded-2xl bg-[#F7F7F7] border-2 border-[#E5E5E5]">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-black text-[#3C3C3C] flex items-center gap-1.5">
+              <Award className="w-4 h-4 text-[#D97706]" />
+              <span>称号（タイトル設定）</span>
+            </label>
+            <span className="text-[11px] font-bold text-[#777777]">
+              名前の色や輝きが変化！
+            </span>
+          </div>
+
+          {/* Current Title Preview Box */}
+          <div className="p-3 bg-white border border-[#E5E5E5] rounded-xl mb-3 flex items-center justify-between shadow-2xs">
+            <span className="text-xs font-bold text-[#777777]">表示プレビュー:</span>
+            <div className="text-base font-black">
+              <StyledUserName
+                name={name || '学習者'}
+                titleId={selectedTitle}
+                showBadge
+              />
+            </div>
+          </div>
+
+          <p className="text-[11px] text-[#AFAFAF] font-bold mb-2">
+            ※称号はショップでは購入できません。ストーリーモードなどの到達報酬で獲得できます。
+          </p>
+
+          {/* Titles List */}
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+            {getAllTitles().map((title) => {
+              const unlockedList = stats?.unlockedTitles || ['beginner', 'today_login'];
+              const isUnlocked = unlockedList.includes(title.id) || title.id === 'beginner' || title.id === 'today_login';
+              const isEquipped = selectedTitle === title.id;
+
+              return (
+                <div
+                  key={title.id}
+                  onClick={() => {
+                    if (isUnlocked) {
+                      audio.playTap();
+                      setSelectedTitle(title.id);
+                    } else {
+                      audio.playWrong();
+                    }
+                  }}
+                  className={`p-2.5 rounded-xl border-2 transition-all flex items-center justify-between cursor-pointer ${
+                    isEquipped
+                      ? 'bg-[#EEFDEB] border-[#58CC02] shadow-xs'
+                      : isUnlocked
+                      ? 'bg-white border-[#E5E5E5] hover:border-[#CCCCCC]'
+                      : 'bg-[#EEEEEE] border-[#E5E5E5] opacity-60 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-md border font-black shrink-0 ${title.badgeClass}`}>
+                      {title.name}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-black truncate">
+                        <StyledUserName name={title.name} titleId={title.id} />
+                      </div>
+                      <div className="text-[10px] text-[#777777] font-bold truncate">
+                        {isUnlocked ? title.description : `🔒 解除条件: ${title.unlockCondition}`}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 ml-2">
+                    {isEquipped ? (
+                      <span className="flex items-center gap-1 text-[11px] font-black text-[#58A700] bg-white px-2 py-1 rounded-lg border border-[#BBF7D0]">
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        <span>装着中</span>
+                      </span>
+                    ) : isUnlocked ? (
+                      <span className="text-[11px] font-black text-[#1CB0F6] bg-[#EBF7FD] px-2 py-1 rounded-lg border border-[#BAE3F8]">
+                        選択
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#999999]">
+                        <Lock className="w-3 h-3" />
+                        <span>未獲得</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 3. Custom Icon Canvas Editor Section */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-black text-[#3C3C3C] flex items-center gap-1.5">

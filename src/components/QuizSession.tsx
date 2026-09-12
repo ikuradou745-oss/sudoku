@@ -25,7 +25,8 @@ import { DotConnectQuiz } from './DotConnectQuiz';
 import { HandwritingQuiz } from './HandwritingQuiz';
 
 interface QuizSessionProps {
-  mode: 'practice' | 'daily';
+  mode: 'practice' | 'daily' | 'story';
+  storyStage?: number;
   questions: Question[];
   modifiers?: Modifier[];
   stats?: UserStats;
@@ -41,6 +42,7 @@ interface QuizSessionProps {
 
 export function QuizSession({
   mode,
+  storyStage,
   questions,
   modifiers = [],
   stats,
@@ -51,7 +53,7 @@ export function QuizSession({
   const isTimeLimit = modifiers.some((m) => m.id === 'timeLimit' && m.active);
 
   const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [lives, setLives] = useState<number>(isHardcore ? 1 : 3);
+  const [lives, setLives] = useState<number>(mode === 'story' || isHardcore ? 1 : 3);
   const [mistakes, setMistakes] = useState<number>(0);
   const [hasUsedRevive, setHasUsedRevive] = useState<boolean>(false);
   const [showAdModal, setShowAdModal] = useState<boolean>(false);
@@ -133,9 +135,11 @@ export function QuizSession({
 
   // Activate Pencil Skill (Hint)
   const handleActivatePencil = () => {
+    const threshold = equippedSub === 'pencil_sharpener' ? 50 : 100;
+    if (mainCharge < threshold || pencilActive) return;
     audio.playTap();
     setPencilActive(true);
-    setMainCharge(0);
+    setMainCharge((prev) => Math.max(0, prev - threshold));
   };
 
   // Activate Eraser Skill (50:50 or Auto Fill Half)
@@ -357,7 +361,9 @@ export function QuizSession({
   const calculateFinalReward = () => {
     const isPerfect = mistakes === 0;
     let reward = 0;
-    if (mode === 'daily') {
+    if (mode === 'story') {
+      reward = 5; // 5⚡️ per story lesson completion
+    } else if (mode === 'daily') {
       const dailyCalc = calculateDailyReward(dailyStreakCount, isPerfect);
       reward = dailyCalc.totalReward;
     } else {
@@ -403,9 +409,15 @@ export function QuizSession({
         >
           <div className="flex justify-center mb-4">
             <div className={`w-20 h-20 rounded-3xl border-b-4 flex items-center justify-center text-white shadow-md animate-bounce ${
-              mode === 'daily' ? 'bg-[#FF9600] border-[#D97706]' : 'bg-[#58CC02] border-[#58A700]'
+              mode === 'story'
+                ? 'bg-[#1CB0F6] border-[#1899D6] text-3xl'
+                : mode === 'daily'
+                ? 'bg-[#FF9600] border-[#D97706]'
+                : 'bg-[#58CC02] border-[#58A700]'
             }`}>
-              {mode === 'daily' ? (
+              {mode === 'story' ? (
+                <span>🗺️</span>
+              ) : mode === 'daily' ? (
                 <Flame className="w-10 h-10 fill-white" />
               ) : (
                 <Sparkles className="w-10 h-10" />
@@ -414,10 +426,16 @@ export function QuizSession({
           </div>
 
           <h1 className="text-3xl font-black text-[#3C3C3C] tracking-tight mb-1">
-            {mode === 'daily' ? 'デイリーセット達成！' : 'レッスン完了！'}
+            {mode === 'story'
+              ? `ステージ ${storyStage} クリア！`
+              : mode === 'daily'
+              ? 'デイリーセット達成！'
+              : 'レッスン完了！'}
           </h1>
           <p className="text-sm font-bold text-[#AFAFAF] mb-5">
-            {mode === 'daily' 
+            {mode === 'story'
+              ? 'ライフ1の真剣勝負を突破！3問全問クリア！'
+              : mode === 'daily' 
               ? `🔥 連勝記録更新！${dailyStreakCount}日連続クリア！` 
               : '素晴らしい成果です！'}
           </p>
@@ -730,10 +748,10 @@ export function QuizSession({
         </div>
 
         {/* Goods Visual Ability Triggers (Pencil & Ruler) */}
-        {pencilActive && (
+        {pencilActive && currentQ.type !== 'handwriting' && (
           <PencilHintCard question={currentQ} />
         )}
-        {isRulerActiveCurrentQ && (
+        {isRulerActiveCurrentQ && currentQ.type !== 'handwriting' && (
           <RulerGuideCard question={currentQ} />
         )}
 

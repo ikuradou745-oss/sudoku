@@ -512,7 +512,8 @@ class RealtimePresenceAndRankedService {
     name: string,
     avatarUrl: string | null = null,
     rating: number = 0,
-    rankTier: RankTier = 'bronze'
+    rankTier: RankTier = 'bronze',
+    titleId?: string
   ) {
     this.currentUserId = playerId;
     this.currentUserName = name;
@@ -531,6 +532,7 @@ class RealtimePresenceAndRankedService {
       lastActive: now,
       isOnline: true,
       lastLoginDate: todayStr,
+      titleId: titleId || 'today_login',
     };
 
     const onlineIdx = this.onlineUsers.findIndex((u) => u.id === playerId);

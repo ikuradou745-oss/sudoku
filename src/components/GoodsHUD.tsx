@@ -31,6 +31,7 @@ export function GoodsHUD({
 }: GoodsHUDProps) {
   const main = MAIN_GOODS[equippedMain] || MAIN_GOODS.pencil;
   const sub = SUB_GOODS[equippedSub] || SUB_GOODS.eraser;
+  const pencilThreshold = equippedSub === 'pencil_sharpener' ? 50 : 100;
 
   return (
     <div className="w-full bg-white/95 backdrop-blur-xs border-2 border-[#E5E5E5] rounded-2xl p-2.5 shadow-xs mb-3">
@@ -55,7 +56,7 @@ export function GoodsHUD({
                   <div className="w-14 h-2 bg-[#E5E5E5] rounded-full overflow-hidden shrink-0">
                     <div 
                       className={`h-full transition-all duration-300 ${
-                        mainCharge >= 100 ? 'bg-[#58CC02] animate-pulse' : 'bg-[#1CB0F6]'
+                        mainCharge >= pencilThreshold ? 'bg-[#58CC02] animate-pulse' : 'bg-[#1CB0F6]'
                       }`}
                       style={{ width: `${mainCharge}%` }}
                     />
@@ -84,7 +85,7 @@ export function GoodsHUD({
                   <Check className="w-3 h-3 stroke-[3]" />
                   発動中
                 </span>
-              ) : mainCharge >= 100 ? (
+              ) : mainCharge >= pencilThreshold ? (
                 <button
                   type="button"
                   onClick={onActivatePencil}
@@ -95,7 +96,7 @@ export function GoodsHUD({
                 </button>
               ) : (
                 <span className="text-[9px] font-bold text-[#AFAFAF] bg-[#EEEEEE] px-1.5 py-0.5 rounded">
-                  4問でMAX
+                  {equippedSub === 'pencil_sharpener' ? '2問(50%)で可' : '4問でMAX'}
                 </span>
               )}
             </div>
@@ -116,7 +117,14 @@ export function GoodsHUD({
                 </span>
               </div>
 
-              {equippedSub === 'hat' ? (
+              {equippedSub === 'pencil_sharpener' ? (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[10px] font-black text-[#DC2626] bg-[#FEF2F2] px-1.5 py-0.5 rounded border border-[#FECACA] flex items-center gap-0.5">
+                    <span>⚙️</span>
+                    <span>えんぴつ50%発動!</span>
+                  </span>
+                </div>
+              ) : equippedSub === 'hat' ? (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-[10px] font-black text-[#D97706] bg-[#FFFBEB] px-1.5 py-0.5 rounded border border-[#FDE68A] flex items-center gap-0.5">
                     <span>⚡️</span>
