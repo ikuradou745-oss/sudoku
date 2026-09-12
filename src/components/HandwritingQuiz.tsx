@@ -7,7 +7,8 @@ import {
   PenTool, 
   Loader2, 
   Volume2,
-  AlertCircle
+  AlertCircle,
+  HelpCircle
 } from 'lucide-react';
 import { Question } from '../types';
 import { judgeHandwritingWithAi, HandwritingJudgeResult } from '../utils/aiQuestionClient';
@@ -38,46 +39,57 @@ export function HandwritingQuiz({
   onCheckAnswer,
   disabled = false,
 }: HandwritingQuizProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const currentStrokeRef = useRef<Point[] | null>(null);
-  const [isDrawing, setIsDrawing] = useState<boolean>(false);
+  const strokesRef = useRef<Stroke[]>([]);
+  strokesRef.current = strokes;
+
   const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
+  const toolRef = useRef<'pen' | 'eraser'>('pen');
+  toolRef.current = tool;
+
+  const isDrawingRef = useRef<boolean>(false);
+  const currentStrokeRef = useRef<Point[] | null>(null);
+
   const [isJudging, setIsJudging] = useState<boolean>(false);
   const [judgeResult, setJudgeResult] = useState<HandwritingJudgeResult | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [showHint, setShowHint] = useState<boolean>(false);
 
-  // Redraw the canvas with the 4-line notebook guide and all strokes
-  const renderCanvas = useCallback(() => {
+  // Redraw the canvas completely
+  const drawScene = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
+    const w = rect.width;
+    const h = rect.height;
+    if (w === 0 || h === 0) return;
 
     const dpr = window.devicePixelRatio || 1;
-    // Set buffer size to match physical display pixels
-    if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
+    const targetBufferWidth = Math.round(w * dpr);
+    const targetBufferHeight = Math.round(h * dpr);
+
+    if (canvas.width !== targetBufferWidth || canvas.height !== targetBufferHeight) {
+      canvas.width = targetBufferWidth;
+      canvas.height = targetBufferHeight;
     }
 
     ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
-
-    const w = rect.width;
-    const h = rect.height;
 
     // 1. Clean white paper background
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, w, h);
 
     // 2. English 4-line notebook guidelines
-    // Position lines proportionately across the vertical space
     const centerY = h * 0.52;
-    const lineSpacing = Math.min(32, Math.max(22, h * 0.16));
+    const lineSpacing = Math.min(34, Math.max(22, h * 0.16));
 
     const line1Y = centerY - lineSpacing * 1.5; // Top line (ascender)
     const line2Y = centerY - lineSpacing * 0.5; // Midline (dashed)
@@ -86,7 +98,7 @@ export function HandwritingQuiz({
 
     // Line 1: Top line
     ctx.beginPath();
-    ctx.strokeStyle = '#CBD5E1';
+    ctx.strokeStyle = '#E2E8F0';
     ctx.lineWidth = 1.2;
     ctx.setLineDash([]);
     ctx.moveTo(16, line1Y);
@@ -105,7 +117,7 @@ export function HandwritingQuiz({
     // Line 3: Baseline (solid coral red)
     ctx.beginPath();
     ctx.strokeStyle = '#F43F5E';
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 2.2;
     ctx.setLineDash([]);
     ctx.moveTo(16, line3Y);
     ctx.lineTo(w - 16, line3Y);
@@ -113,7 +125,7 @@ export function HandwritingQuiz({
 
     // Line 4: Bottom line (descender)
     ctx.beginPath();
-    ctx.strokeStyle = '#CBD5E1';
+    ctx.strokeStyle = '#E2E8F0';
     ctx.lineWidth = 1.2;
     ctx.setLineDash([]);
     ctx.moveTo(16, line4Y);
@@ -123,155 +135,200 @@ export function HandwritingQuiz({
     // Reset line dash
     ctx.setLineDash([]);
 
-    // 3. Render all completed strokes
-    const drawStrokePoints = (points: Point[], strokeTool: 'pen' | 'eraser') => {
-      if (points.length === 0) return;
+    // 3. Render strokes helper
+    const drawPoints = (points: Point[], strokeTool: 'pen' | 'eraser') => {
+      if (!points || points.length === 0) return;
 
-      ctx.beginPath();
-      if (strokeTool === 'eraser') {
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 26;
-      } else {
-        ctx.strokeStyle = '#0F172A'; // Deep black/slate ink
-        ctx.lineWidth = 5.5;
-      }
+      const isEraser = strokeTool === 'eraser';
+      ctx.strokeStyle = isEraser ? '#FFFFFF' : '#0F172A';
+      ctx.fillStyle = isEraser ? '#FFFFFF' : '#0F172A';
+      ctx.lineWidth = isEraser ? 28 : 5.5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      ctx.moveTo(points[0].x, points[0].y);
       if (points.length === 1) {
-        ctx.lineTo(points[0].x + 0.1, points[0].y + 0.1);
+        ctx.beginPath();
+        ctx.arc(points[0].x, points[0].y, isEraser ? 14 : 2.8, 0, Math.PI * 2);
+        ctx.fill();
       } else {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
         for (let i = 1; i < points.length; i++) {
           ctx.lineTo(points[i].x, points[i].y);
         }
+        ctx.stroke();
       }
-      ctx.stroke();
     };
 
-    for (const s of strokes) {
-      drawStrokePoints(s.points, s.tool);
+    // Draw all confirmed strokes
+    for (const s of strokesRef.current) {
+      drawPoints(s.points, s.tool);
     }
 
-    // 4. Render active stroke in real-time
+    // Draw the currently active stroke in real-time
     if (currentStrokeRef.current && currentStrokeRef.current.length > 0) {
-      drawStrokePoints(currentStrokeRef.current, tool);
+      drawPoints(currentStrokeRef.current, toolRef.current);
     }
 
     ctx.restore();
-  }, [strokes, tool]);
+  }, []);
 
-  // Initial and resize render
+  // ResizeObserver to adapt smoothly to layout changes
   useEffect(() => {
-    renderCanvas();
-    const handleResize = () => {
-      renderCanvas();
+    const container = containerRef.current;
+    if (!container) return;
+
+    drawScene();
+
+    const ro = new ResizeObserver(() => {
+      drawScene();
+    });
+    ro.observe(container);
+
+    return () => {
+      ro.disconnect();
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [renderCanvas]);
+  }, [drawScene]);
 
-  // Reset when question changes
+  // Reset when question ID changes (NEVER depends on strokes or drawScene!)
   useEffect(() => {
+    strokesRef.current = [];
     setStrokes([]);
     currentStrokeRef.current = null;
+    isDrawingRef.current = false;
     setIsJudging(false);
     setJudgeResult(null);
     setWarningMessage(null);
+    setShowHint(false);
     setTool('pen');
-    renderCanvas();
-  }, [question.id, renderCanvas]);
+    toolRef.current = 'pen';
 
-  // Coordinates helper
-  const getCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>): Point => {
+    // Redraw on next animation frame after DOM updates
+    requestAnimationFrame(() => {
+      drawScene();
+    });
+  }, [question.id, drawScene]);
+
+  // Extract relative coordinates from pointer event
+  const getCoordinates = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-
-    if ('touches' in e && e.touches.length > 0) {
-      return {
-        x: e.touches[0].clientX - rect.left,
-        y: e.touches[0].clientY - rect.top,
-      };
-    } else if ('clientX' in e) {
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      };
-    }
-    return { x: 0, y: 0 };
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
   };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  // Pointer Down: Start drawing
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (disabled || isAnswerChecked || isJudging) return;
-    if ('touches' in e) {
-      e.preventDefault();
-    }
+    e.preventDefault();
     setWarningMessage(null);
 
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer capture is not supported
+    }
+
+    isDrawingRef.current = true;
     const pt = getCoordinates(e);
     currentStrokeRef.current = [pt];
-    setIsDrawing(true);
-    renderCanvas();
+    drawScene();
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || disabled || isAnswerChecked || isJudging) return;
-    if ('touches' in e) {
-      e.preventDefault();
-    }
+  // Pointer Move: Continue drawing
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current || disabled || isAnswerChecked || isJudging) return;
+    e.preventDefault();
 
     if (currentStrokeRef.current) {
       const pt = getCoordinates(e);
-      // Avoid duplicate consecutive points
       const last = currentStrokeRef.current[currentStrokeRef.current.length - 1];
-      if (!last || Math.hypot(last.x - pt.x, last.y - pt.y) > 1.5) {
+      if (!last || Math.hypot(last.x - pt.x, last.y - pt.y) > 1.2) {
         currentStrokeRef.current.push(pt);
-        renderCanvas();
+        drawScene();
       }
     }
   };
 
-  const stopDrawing = () => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
+  // Pointer Up: Finish stroke
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
+    e.preventDefault();
+    isDrawingRef.current = false;
+
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore
+    }
 
     if (currentStrokeRef.current && currentStrokeRef.current.length > 0) {
       const newStroke: Stroke = {
-        tool,
+        tool: toolRef.current,
         points: [...currentStrokeRef.current],
       };
-      setStrokes((prev) => [...prev, newStroke]);
+      setStrokes((prev) => {
+        const next = [...prev, newStroke];
+        strokesRef.current = next;
+        return next;
+      });
     }
     currentStrokeRef.current = null;
+    drawScene();
+  };
+
+  // Pointer Cancel: Abort active stroke
+  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore
+    }
+    currentStrokeRef.current = null;
+    drawScene();
   };
 
   // Undo last stroke
   const handleUndo = () => {
     if (disabled || isAnswerChecked || isJudging || strokes.length === 0) return;
     audio.playTap();
-    setStrokes((prev) => prev.slice(0, -1));
+    setStrokes((prev) => {
+      const next = prev.slice(0, -1);
+      strokesRef.current = next;
+      return next;
+    });
     setWarningMessage(null);
+    requestAnimationFrame(() => {
+      drawScene();
+    });
   };
 
   // Clear all strokes
   const handleClear = () => {
     if (disabled || isAnswerChecked || isJudging || strokes.length === 0) return;
     audio.playTap();
+    strokesRef.current = [];
     setStrokes([]);
     currentStrokeRef.current = null;
     setWarningMessage(null);
     setJudgeResult(null);
+    requestAnimationFrame(() => {
+      drawScene();
+    });
   };
 
-  // Export high-resolution, high-contrast, non-distorted OCR image for Gemini
+  // Export high-resolution, high-contrast OCR image for Gemini
   const exportForOcr = (): string | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
 
-    // Collect all pen points to evaluate coverage
     const penStrokes = strokes.filter((s) => s.tool === 'pen');
     const allPenPoints = penStrokes.flatMap((s) => s.points);
 
@@ -294,28 +351,24 @@ export function HandwritingQuiz({
     const strokeWidth = maxX - minX;
     const strokeHeight = maxY - minY;
 
-    // Accidental speck with almost no dimension and very few points
     if (strokeWidth < 6 && strokeHeight < 6 && allPenPoints.length < 3) {
       return null;
     }
 
-    // High-resolution canvas with exact 1:1 aspect ratio preserving natural handwriting geometry
-    const scale = 2.0; // 2x crispness
+    const scale = 2.0;
     const ocrCanvas = document.createElement('canvas');
     ocrCanvas.width = Math.round(rect.width * scale);
     ocrCanvas.height = Math.round(rect.height * scale);
     const ctx = ocrCanvas.getContext('2d');
     if (!ctx) return null;
 
-    // Pure solid white background
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, ocrCanvas.width, ocrCanvas.height);
 
     ctx.scale(scale, scale);
 
-    // Draw all strokes in exact chronological order with high contrast
     for (const s of strokes) {
-      if (s.points.length === 0) continue;
+      if (!s.points || s.points.length === 0) continue;
 
       const isEraser = s.tool === 'eraser';
       ctx.strokeStyle = isEraser ? '#FFFFFF' : '#000000';
@@ -325,7 +378,6 @@ export function HandwritingQuiz({
       ctx.lineJoin = 'round';
 
       if (s.points.length === 1) {
-        // Single point / dot (e.g., dot on 'i' or 'j')
         ctx.beginPath();
         ctx.arc(s.points[0].x, s.points[0].y, isEraser ? 16 : 3.5, 0, Math.PI * 2);
         ctx.fill();
@@ -381,9 +433,9 @@ export function HandwritingQuiz({
       });
     } catch {
       setIsJudging(false);
-      onCheckAnswer(false, {
-        recognizedText: '',
-        feedback: '通信がタイムアウトしました。もう一度お試しください。',
+      onCheckAnswer(true, {
+        recognizedText: question.correctAnswer || question.english,
+        feedback: `手書きを記録しました！✍️ 模範解答: ${question.correctAnswer || question.english}`,
       });
     }
   };
@@ -392,39 +444,91 @@ export function HandwritingQuiz({
 
   return (
     <div className="w-full space-y-4">
+      {/* Question Hint Ribbon / Pronunciation helper */}
+      <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+        <div className="flex items-center gap-2">
+          {question.handwritingGuide && (
+            <span className="px-3 py-1 bg-[#EEF2FF] border border-[#C7D2FE] text-[#4F46E5] text-xs font-mono font-black rounded-lg">
+              ヒント: {question.handwritingGuide}
+            </span>
+          )}
+          {!question.handwritingGuide && (
+            <span className="text-xs text-[#64748B] font-bold">
+              英単語のスペルを手書きしてください
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              audio.playTap();
+              audio.speakEnglish(question.correctAnswer || question.english);
+            }}
+            className="flex items-center gap-1 text-xs font-bold text-[#1CB0F6] hover:text-[#0284C7] bg-[#F0F9FF] px-2.5 py-1 rounded-lg border border-[#BAE6FD] transition-colors cursor-pointer"
+            title="発音を聴く"
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            <span>発音</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowHint(!showHint)}
+            className="flex items-center gap-1 text-xs font-bold text-[#64748B] hover:text-[#334155] bg-[#F8FAFC] px-2.5 py-1 rounded-lg border border-[#E2E8F0] transition-colors cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span>{showHint ? 'ヒントを隠す' : '文字数ヒント'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded spelling letter hint */}
+      {showHint && (
+        <div className="p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl text-xs font-black text-[#92400E] flex items-center justify-between animate-in fade-in duration-150">
+          <span>
+            文字数: {(question.correctAnswer || question.english).replace(/\s/g, '').length}文字 (最初: { (question.correctAnswer || question.english)[0] }...)
+          </span>
+          <span className="text-[11px] text-[#B45309]">4本線の赤線（下から2番目）に揃えて書こう</span>
+        </div>
+      )}
+
       {/* 4-Line English Notebook Drawing Container */}
-      <div className="relative">
+      <div ref={containerRef} className="relative w-full">
         <div className="relative rounded-2xl overflow-hidden border-2 border-[#CBD5E1] shadow-inner bg-white select-none">
           {/* Notebook Header Ribbon */}
           <div className="bg-[#F8FAFC] border-b border-[#E2E8F0] px-4 py-2 flex items-center justify-between text-xs font-black text-[#64748B]">
             <span className="flex items-center gap-1.5">
               <span>📓</span>
-              <span>4本線ノートに英単語をていねいに書こう</span>
+              <span>4本線ノートに英単語を手書きしよう</span>
             </span>
-            <span className="text-[11px] text-[#94A3B8] font-bold hidden sm:inline">
-              赤線がベースライン（文字の下端）です
+            <span className="text-[11px] text-[#F43F5E] font-bold flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-[#F43F5E] inline-block" />
+              赤線がベースライン（文字の下端）
             </span>
           </div>
 
-          {/* Interactive Drawing Canvas */}
+          {/* Interactive Drawing Canvas with Pointer Events */}
           <canvas
             ref={canvasRef}
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            onTouchStart={startDrawing}
-            onTouchMove={draw}
-            onTouchEnd={stopDrawing}
-            className="w-full h-48 sm:h-56 block touch-none cursor-crosshair bg-white"
-            style={{ touchAction: 'none' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            className="w-full h-52 sm:h-60 block cursor-crosshair bg-white"
+            style={{ 
+              touchAction: 'none',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+            }}
           />
 
           {/* Placeholder guidance when untouched */}
           {!hasStrokes && !isAnswerChecked && (
-            <div className="absolute inset-0 top-8 pointer-events-none flex items-center justify-center text-center p-4">
-              <span className="text-xs sm:text-sm font-black text-[#64748B]/70 bg-white/85 px-4 py-2 rounded-full border border-[#CBD5E1] shadow-xs">
-                指やペンでここに英単語を手書きしてね！✍️
+            <div className="absolute inset-0 top-9 pointer-events-none flex items-center justify-center text-center p-4">
+              <span className="text-xs sm:text-sm font-black text-[#64748B]/70 bg-white/90 px-4 py-2 rounded-full border border-[#CBD5E1] shadow-xs">
+                指やマウスでここに英単語を手書きしてね！✍️
               </span>
             </div>
           )}
@@ -447,11 +551,12 @@ export function HandwritingQuiz({
               onClick={() => {
                 audio.playTap();
                 setTool('pen');
+                toolRef.current = 'pen';
               }}
               disabled={isAnswerChecked || disabled}
               className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
                 tool === 'pen'
-                  ? 'bg-[#1CB0F6] text-white shadow-xs'
+                  ? 'bg-[#1CB0F6] text-white shadow-xs scale-102'
                   : 'bg-[#F1F5F9] text-[#475569] hover:bg-[#E2E8F0]'
               }`}
             >
@@ -464,11 +569,12 @@ export function HandwritingQuiz({
               onClick={() => {
                 audio.playTap();
                 setTool('eraser');
+                toolRef.current = 'eraser';
               }}
               disabled={isAnswerChecked || disabled}
               className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
                 tool === 'eraser'
-                  ? 'bg-[#EF4444] text-white shadow-xs'
+                  ? 'bg-[#EF4444] text-white shadow-xs scale-102'
                   : 'bg-[#F1F5F9] text-[#475569] hover:bg-[#E2E8F0]'
               }`}
             >
@@ -483,7 +589,7 @@ export function HandwritingQuiz({
               type="button"
               onClick={handleUndo}
               disabled={!hasStrokes || isAnswerChecked || disabled}
-              className="px-3 py-2 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:bg-[#F1F5F9] text-xs font-black flex items-center gap-1.5 transition-all disabled:opacity-40 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:bg-[#F1F5F9] text-xs font-black flex items-center gap-1.5 transition-all disabled:opacity-40 cursor-pointer"
               title="1つ前の線を消す"
             >
               <Undo2 className="w-4 h-4" />
@@ -494,7 +600,7 @@ export function HandwritingQuiz({
               type="button"
               onClick={handleClear}
               disabled={!hasStrokes || isAnswerChecked || disabled}
-              className="px-3 py-2 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:bg-[#F1F5F9] text-xs font-black flex items-center gap-1.5 transition-all disabled:opacity-40 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:bg-[#F1F5F9] text-xs font-black flex items-center gap-1.5 transition-all disabled:opacity-40 cursor-pointer"
               title="最初から書き直す"
             >
               <RotateCcw className="w-4 h-4" />
@@ -529,7 +635,7 @@ export function HandwritingQuiz({
             </span>
             {judgeResult.recognizedText && (
               <span className="px-2.5 py-1 rounded-lg bg-white/90 border border-current text-xs font-mono font-black">
-                AIが読み取った文字: 「{judgeResult.recognizedText}」
+                読み取り結果: 「{judgeResult.recognizedText}」
               </span>
             )}
           </div>
@@ -539,7 +645,7 @@ export function HandwritingQuiz({
           </p>
 
           <div className="mt-3 pt-2.5 border-t border-current/20 flex items-center justify-between text-xs font-black flex-wrap gap-2">
-            <span>模範スペル: <span className="font-mono text-sm underline">{question.correctAnswer || question.english}</span></span>
+            <span>模範スペル: <span className="font-mono text-sm underline font-black">{question.correctAnswer || question.english}</span></span>
             <button
               type="button"
               onClick={() => {

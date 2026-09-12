@@ -387,7 +387,7 @@ export function QuizSession({
     setShowAdModal(false);
     setIsGameOver(false);
     setHasUsedRevive(true);
-    setLives(3);
+    setLives(1);
     setIsAnswerChecked(false);
     setIsCorrect(null);
     setTimeLeft(15);
@@ -610,7 +610,7 @@ export function QuizSession({
                 className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-base font-black flex items-center justify-center gap-2"
               >
                 <Tv className="w-5 h-5" />
-                <span>広告を見てライフ3で復活 (1回のみ)</span>
+                <span>広告を見てライフ1で復活 (1回のみ)</span>
               </button>
             ) : (
               <div className="p-3 bg-[#F7F7F7] rounded-xl text-xs font-bold text-[#AFAFAF]">
