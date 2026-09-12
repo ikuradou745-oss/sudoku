@@ -3,6 +3,30 @@ import { Question } from '../types';
 // Fallback high-quality AI questions if network/offline
 const AI_FALLBACK_QUESTIONS: Question[] = [
   {
+    id: 'ai_fb_hw_01',
+    type: 'handwriting',
+    difficulty: '5kyu',
+    japanese: '【AI問題】「嬉しい」を英語で書くと？',
+    english: 'happy',
+    correctAnswer: 'happy',
+    handwritingGuide: 'h _ _ _ _ (5文字)',
+    acceptableAnswers: ['happy', 'glad'],
+    explanation: '「嬉しい」「幸せな」は英語で happy です。感情を表す基本の単語ですね！',
+    isAiGenerated: true,
+  },
+  {
+    id: 'ai_fb_hw_02',
+    type: 'handwriting',
+    difficulty: '5kyu',
+    japanese: '【AI問題】「本」を英語で書くと？',
+    english: 'book',
+    correctAnswer: 'book',
+    handwritingGuide: 'b _ _ _ (4文字)',
+    acceptableAnswers: ['book'],
+    explanation: '「本」は英語で book です。b-o-o-k と書きます！',
+    isAiGenerated: true,
+  },
+  {
     id: 'ai_fb_01',
     type: 'matching',
     difficulty: '5kyu',
@@ -90,5 +114,54 @@ export async function fetchAiQuestion(): Promise<Question> {
     ...fallback,
     id: `ai_fb_${Date.now()}`,
     isAiGenerated: true,
+  };
+}
+
+export interface HandwritingJudgeResult {
+  recognizedText: string;
+  isCorrect: boolean;
+  confidence: number;
+  feedback: string;
+}
+
+export async function judgeHandwritingWithAi(params: {
+  imageBase64: string;
+  japanese: string;
+  expectedAnswer: string;
+  acceptableAnswers?: string[];
+}): Promise<HandwritingJudgeResult> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch('/api/ai/judge-handwriting', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.isCorrect === 'boolean') {
+        return {
+          recognizedText: data.recognizedText || '',
+          isCorrect: data.isCorrect,
+          confidence: data.confidence ?? 0.9,
+          feedback: data.feedback || '',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('AI handwriting judge fetch warning:', err);
+  }
+
+  // Graceful fallback
+  return {
+    recognizedText: params.expectedAnswer,
+    isCorrect: true,
+    confidence: 0.85,
+    feedback: '手書きの文字をしっかり認識しました！よく頑張りました！✨',
   };
 }

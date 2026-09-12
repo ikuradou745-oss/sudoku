@@ -1,4 +1,4 @@
-export type QuestionType = 'order' | 'blank' | 'translate' | 'dialogue' | 'matching';
+export type QuestionType = 'order' | 'blank' | 'translate' | 'dialogue' | 'matching' | 'handwriting';
 
 export type QuestionDifficulty = '5kyu' | '4kyu' | 'long';
 
@@ -26,6 +26,9 @@ export interface Question {
   audioPrompt?: string;
   // For 'matching' (点繋ぎ)
   matchingPairs?: MatchingPair[];
+  // For 'handwriting' (手書き問題)
+  handwritingGuide?: string;
+  acceptableAnswers?: string[];
   // For AI questions
   isAiGenerated?: boolean;
 }

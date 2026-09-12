@@ -22,6 +22,7 @@ import { AdModal } from './AdModal';
 import { GoodsHUD } from './GoodsHUD';
 import { PencilHintCard, MarkerOverlay, RulerGuideCard } from './GoodsVisualEffects';
 import { DotConnectQuiz } from './DotConnectQuiz';
+import { HandwritingQuiz } from './HandwritingQuiz';
 
 interface QuizSessionProps {
   mode: 'practice' | 'daily';
@@ -185,6 +186,39 @@ export function QuizSession({
       }
       if (equippedSub === 'eraser') {
         setSubCharge((prev) => Math.min(100, prev + 25));
+      }
+    } else {
+      // Check Marker Pen ability: Invalidate miss once and retry
+      if (equippedMain === 'marker' && !markerUsed) {
+        audio.playTap();
+        setMarkerUsed(true);
+        setShowMarkerOverlay(true);
+        return;
+      }
+
+      handleMistake();
+    }
+  };
+
+  // Handle Handwriting (書き問題) Result
+  const handleHandwritingResult = (isHandwritingCorrect: boolean) => {
+    if (isAnswerChecked) return;
+
+    if (isHandwritingCorrect) {
+      audio.playCorrect();
+      setIsCorrect(true);
+      setIsAnswerChecked(true);
+
+      // Charge equipped stationery
+      if (equippedMain === 'pencil') {
+        setMainCharge((prev) => Math.min(100, prev + 25));
+      }
+      if (equippedSub === 'eraser') {
+        setSubCharge((prev) => Math.min(100, prev + 25));
+      }
+
+      if (currentQ?.correctAnswer || currentQ?.english) {
+        audio.speakEnglish(currentQ.correctAnswer || currentQ.english);
       }
     } else {
       // Check Marker Pen ability: Invalidate miss once and retry
@@ -668,6 +702,7 @@ export function QuizSession({
               {currentQ.type === 'translate' && '英単語・意味選択'}
               {currentQ.type === 'dialogue' && '会話の応答'}
               {currentQ.type === 'matching' && '🔗 点繋ぎ (ペアマッチング)'}
+              {currentQ.type === 'handwriting' && '✍️ 書き問題 (手書き・AI判定)'}
             </span>
 
             {/* AI Generated Question Badge */}
@@ -679,8 +714,8 @@ export function QuizSession({
             )}
           </div>
 
-          {/* Do NOT show audio listening button for 'order' and 'matching' */}
-          {currentQ.type !== 'order' && currentQ.type !== 'matching' && (
+          {/* Do NOT show audio listening button for 'order', 'matching', and 'handwriting' */}
+          {currentQ.type !== 'order' && currentQ.type !== 'matching' && currentQ.type !== 'handwriting' && (
             <button
               onClick={() => {
                 audio.playTap();
@@ -708,10 +743,21 @@ export function QuizSession({
         </h2>
 
         {/* Prompt Sentence if exists */}
-        {currentQ.promptSentence && currentQ.type !== 'dialogue' && currentQ.type !== 'matching' && (
+        {currentQ.promptSentence && currentQ.type !== 'dialogue' && currentQ.type !== 'matching' && currentQ.type !== 'handwriting' && (
           <div className="p-4 bg-[#F7F7F7] border-2 border-[#E5E5E5] rounded-2xl text-lg font-black text-[#3C3C3C] mb-6 font-mono-code text-center">
             {currentQ.promptSentence}
           </div>
+        )}
+
+        {/* --- QUESTION TYPE: HANDWRITING (手書き英単語) --- */}
+        {currentQ.type === 'handwriting' && (
+          <HandwritingQuiz
+            question={currentQ}
+            isAnswerChecked={isAnswerChecked}
+            isCorrect={isCorrect}
+            onCheckAnswer={handleHandwritingResult}
+            disabled={isGameOver || isCleared}
+          />
         )}
 
         {/* --- QUESTION TYPE: MATCHING (点繋ぎ) --- */}
@@ -765,7 +811,7 @@ export function QuizSession({
         )}
 
         {/* --- QUESTION TYPE: MULTIPLE CHOICE (blank, translate, dialogue) --- */}
-        {currentQ.type !== 'order' && currentQ.type !== 'matching' && shuffledChoices.length > 0 && (
+        {currentQ.type !== 'order' && currentQ.type !== 'matching' && currentQ.type !== 'handwriting' && shuffledChoices.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {shuffledChoices.map((choice, idx) => {
               const isSelected = selectedAnswer === choice;
@@ -864,9 +910,11 @@ export function QuizSession({
           {/* Action Button: Check OR Next */}
           <div className="w-full sm:w-auto sm:min-w-[160px] sm:ml-auto">
             {!isAnswerChecked ? (
-              currentQ.type === 'matching' ? (
+              currentQ.type === 'matching' || currentQ.type === 'handwriting' ? (
                 <div className="text-xs font-bold text-[#777777] text-center sm:text-right py-2">
-                  ※ 上の「答え合わせ」ボタンを押してください
+                  {currentQ.type === 'matching'
+                    ? '※ 上の「答え合わせ」ボタンを押してください'
+                    : '※ 上の「答え合わせ (AIが自動判定)」を押してください'}
                 </div>
               ) : (
                 <button

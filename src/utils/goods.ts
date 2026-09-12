@@ -16,8 +16,8 @@ export const MAIN_GOODS: Record<MainGoodsId, GoodsItem> = {
     type: 'main',
     name: 'マーカーペン',
     icon: '🖊️',
-    price: 15000,
-    description: '15,000⚡️で購入できるミス無効化マーカー！',
+    price: 3500,
+    description: '3,500⚡️で購入できるミス無効化マーカー！',
     abilityDetail: 'レッスン・試合中1度だけ、ミスをしてもマーカーペンでその問題を落書きして無効化！ライフを失わずにもう一度同じ問題に再挑戦できます。',
   },
 };
@@ -38,8 +38,8 @@ export const SUB_GOODS: Record<SubGoodsId, GoodsItem> = {
     type: 'sub',
     name: 'ものさし',
     icon: '📏',
-    price: 15000,
-    description: '15,000⚡️で購入できる計測ものさし！',
+    price: 5000,
+    description: '5,000⚡️で購入できる計測ものさし！',
     abilityDetail: 'レッスン・試合中ランダムに1回発動！定規が飛び出して長さを測るように文字数を計測。並び替え問題なら「〇 〇〇〇〇 〇 〇〇〇〇」のように文字数枠を表示し、選択問題なら正解単語の文字数（haveなら「〇〇〇〇」）を定規とともに表示します。',
   },
   hat: {
@@ -47,8 +47,8 @@ export const SUB_GOODS: Record<SubGoodsId, GoodsItem> = {
     type: 'sub',
     name: '帽子',
     icon: '🧢',
-    price: 15000,
-    description: '15,000⚡️で購入できるエナジー帽子！',
+    price: 500,
+    description: '500⚡️で購入できるエナジー帽子！',
     abilityDetail: '装備しているだけでもらえる⚡️が50%増えます！（レッスンやランクマッチなど、すべての獲得⚡️が常に1.5倍にアップ）',
   },
 };

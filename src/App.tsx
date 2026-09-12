@@ -144,19 +144,34 @@ export function App() {
     setPhase('quiz');
   };
 
-  // 5. Start Daily Set (5 questions, fixed 15⚡️, includes matching)
-  const handleStartDaily = () => {
+  // 5. Start Daily Set (5 questions, fixed 15⚡️, includes handwriting, matching, AI)
+  const handleStartDaily = async () => {
     setQuizMode('daily');
     setActiveModifiers([]);
 
-    // Select 5 varied questions for the daily set including matching questions
+    // Select 5 varied questions for the daily set including matching & handwriting questions
     const matchingPool = QUESTION_BANK.filter((q) => q.type === 'matching').sort(() => Math.random() - 0.5);
-    const e5 = QUESTION_BANK.filter((q) => q.difficulty === '5kyu' && q.type !== 'matching').sort(() => Math.random() - 0.5).slice(0, 2);
-    const e4 = QUESTION_BANK.filter((q) => q.difficulty === '4kyu' && q.type !== 'matching').sort(() => Math.random() - 0.5).slice(0, 1);
+    const handwritingPool = QUESTION_BANK.filter((q) => q.type === 'handwriting').sort(() => Math.random() - 0.5);
+    const e5 = QUESTION_BANK.filter((q) => q.difficulty === '5kyu' && q.type !== 'matching' && q.type !== 'handwriting').sort(() => Math.random() - 0.5).slice(0, 1);
+    const e4 = QUESTION_BANK.filter((q) => q.difficulty === '4kyu' && q.type !== 'matching' && q.type !== 'handwriting').sort(() => Math.random() - 0.5).slice(0, 1);
     const long = QUESTION_BANK.filter((q) => q.difficulty === 'long').sort(() => Math.random() - 0.5).slice(0, 1);
     const match = matchingPool.slice(0, 1);
+    const hw = handwritingPool.slice(0, 1);
 
-    const dailySet = [...e5, ...e4, ...long, ...match].sort(() => Math.random() - 0.5);
+    const dailySet = [...e5, ...e4, ...long, ...match, ...hw].sort(() => Math.random() - 0.5);
+
+    // AI Question chance in Daily Set (~40% chance)
+    if (Math.random() < 0.4) {
+      try {
+        const aiQ = await fetchAiQuestion();
+        if (aiQ && dailySet.length > 2) {
+          dailySet[2] = aiQ;
+        }
+      } catch {
+        // Fallback handles gracefully
+      }
+    }
+
     setQuizQuestions(dailySet);
     setPhase('quiz');
   };

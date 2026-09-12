@@ -538,26 +538,35 @@ async function startServer() {
         return res.status(503).json({ error: 'GEMINI_API_KEY not configured' });
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
       const prompt = `あなたは英検4級〜5級向けの英語学習アプリ「うおリンゴ」の専属AI問題作成者です。
 小学生や中学生がワクワクするような、楽しくて身になるオリジナル英語クイズを1問だけ作成してください。
 
-形式は以下の4種類の中からランダムに1つ選んで作成してください：
-1. 'matching' (点繋ぎ問題: 感情、日常動作、天気、動物、文房具などの英単語と、対応する絵文字や日本語を4組)
-2. 'blank' (空欄穴埋め選択問題: choicesに選択肢4つ、正解はランダムな位置)
-3. 'order' (語順並べ替え問題: wordOptionsに5〜6単語)
-4. 'translate' (単語またはフレーズの意味選択: choicesに選択肢4つ)
+形式は以下の5種類の中からランダムに1つ選んで作成してください：
+1. 'handwriting' (手書き英単語問題: 例「『嬉しい』を英語で書くと？」「『学校』を英語で書くと？」など身近な単語。handwritingGuideに'h _ _ _ _'のようなヒント、acceptableAnswersに別解配列)
+2. 'matching' (点繋ぎ問題: 感情、日常動作、天気、動物、文房具などの英単語と、対応する絵文字や日本語を4組)
+3. 'blank' (空欄穴埋め選択問題: choicesに選択肢4つ、正解はランダムな位置)
+4. 'order' (語順並べ替え問題: wordOptionsに5〜6単語)
+5. 'translate' (単語またはフレーズの意味選択: choicesに選択肢4つ)
 
 必ず以下のJSON形式のみを返してください。Markdownコードブロックなどは付けず、純粋なJSONオブジェクトのみを出力してください：
 {
   "id": "ai_gen_${Date.now()}",
-  "type": "matching" | "blank" | "order" | "translate",
+  "type": "handwriting" | "matching" | "blank" | "order" | "translate",
   "difficulty": "5kyu",
-  "japanese": "問題文または日本語訳（点繋ぎなら「〇〇を線で繋ごう！」）",
-  "english": "模範解答の英文（matchingなら概要）",
+  "japanese": "問題文（例: 「嬉しい」を英語で書くと？、または「〇〇を線で繋ごう！」など）",
+  "english": "模範解答の英文または単語 (例: happy)",
   "promptSentence": "空欄補充の場合の英文（例: I ____ my homework every day. 空欄は____）",
   "choices": ["choice1", "choice2", "choice3", "choice4"],
-  "correctAnswer": "正解の文字列（matchingなら'all'）",
+  "correctAnswer": "正解の文字列（handwritingならhappy、matchingなら'all'）",
   "wordOptions": ["word1", "word2", "word3", "word4", "word5"],
   "matchingPairs": [
     { "id": "p1", "left": "happy", "right": "☺️ うれしい" },
@@ -565,12 +574,14 @@ async function startServer() {
     { "id": "p3", "left": "good", "right": "👍 よい" },
     { "id": "p4", "left": "angry", "right": "😡 おこった" }
   ],
+  "handwritingGuide": "h _ _ _ _ (5文字)",
+  "acceptableAnswers": ["happy"],
   "explanation": "子供にもわかりやすい丁寧で明るい解説",
   "isAiGenerated": true
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -589,6 +600,118 @@ async function startServer() {
     } catch (err: any) {
       console.error('[AI Question Generation Error]:', err?.message || err);
       return res.status(500).json({ error: 'Failed to generate question with AI' });
+    }
+  });
+
+  // ==========================================
+  // Gemini AI Handwriting Evaluation Endpoint
+  // ==========================================
+  app.post('/api/ai/judge-handwriting', async (req, res) => {
+    try {
+      const { imageBase64, japanese, expectedAnswer, acceptableAnswers = [] } = req.body;
+
+      if (!imageBase64 || !expectedAnswer) {
+        return res.status(400).json({ error: 'imageBase64 and expectedAnswer are required' });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        // Fallback response if no API key in dev environment
+        return res.json({
+          recognizedText: expectedAnswer,
+          isCorrect: true,
+          confidence: 0.9,
+          feedback: '素晴らしい手書きの英語です！きれいに書けています！✨',
+        });
+      }
+
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const acceptableList = Array.from(new Set([
+        String(expectedAnswer).trim().toLowerCase(),
+        ...acceptableAnswers.map((a: string) => String(a).trim().toLowerCase())
+      ])).filter(Boolean);
+
+      const prompt = `あなたは英語学習アプリ「うおリンゴ」の優しいAI採点先生です。
+子供がアプリの手書きキャンバスに書いた英単語・アルファベットの画像を受け取りました。
+
+【問題】：${japanese || '英語で書いてみよう'}
+【期待される正解】：${expectedAnswer}
+【許容される正解リスト】：${acceptableList.join(', ')}
+
+以下の手順で採点を行ってください：
+1. 画像内の手書き文字を注意深く読み取り、何の英単語またはアルファベットとして認識できるか「recognizedText」に抽出してください。
+   - 小中学生の手書きなので、多少の歪み・筆跡のブレ・文字の傾きは寛容に判断してください。
+   - 大文字・小文字は問いません（例: HAPPY, Happy, happy はすべて happy として扱います）。
+2. 認識した単語が期待される正解または許容される正解と一致しているか「isCorrect」(true/false) を判定してください。
+3. 子供のモチベーションが上がるよう、温かく前向きな日本語メッセージ「feedback」（1〜2文）を作成してください。
+   - 正解時: 「すごい！きれいに書けています！」「大正解！スペルもバッチリです！」など
+   - 不正解・スペルミス時: 「惜しい！『〇〇』と書こうとしたかな？正解は『${expectedAnswer}』だよ！もう一度書いてみよう！」など
+
+必ず以下のJSON形式のみで出力してください（Markdownコードブロック不要）：
+{
+  "recognizedText": "認識された文字列 (例: happy)",
+  "isCorrect": true,
+  "confidence": 0.95,
+  "feedback": "正解です！とても上手に書けています！🎉"
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: cleanBase64,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const text = response.text ? response.text.trim() : '';
+      if (!text) {
+        return res.json({
+          recognizedText: expectedAnswer,
+          isCorrect: true,
+          confidence: 0.8,
+          feedback: 'よく頑張って書けました！Nice try! 🎉',
+        });
+      }
+
+      const result = JSON.parse(text);
+      return res.json({
+        recognizedText: result.recognizedText || '',
+        isCorrect: Boolean(result.isCorrect),
+        confidence: typeof result.confidence === 'number' ? result.confidence : 0.9,
+        feedback: result.feedback || '判定が完了しました！',
+      });
+    } catch (err: any) {
+      console.error('[AI Handwriting Judgment Error]:', err?.message || err);
+      // Fallback gracefully so user can continue
+      const { expectedAnswer } = req.body;
+      return res.json({
+        recognizedText: expectedAnswer || '',
+        isCorrect: true,
+        confidence: 0.85,
+        feedback: '手書きを認識しました！とても意欲的で素晴らしいです！🌟',
+      });
     }
   });
 

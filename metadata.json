@@ -1,6 +1,6 @@
 {
   "name": "うおwりんご (Uowlingo)",
-  "description": "英検4~5級レベルの英語学習アプリ。学習モード、モディファイア、デイリーセット、点繋ぎ（ペアマッチング）問題、Gemini AIによるAI問題、グッズ装備（えんぴつ・マーカー・消しゴム・ものさし・帽子）、リアルタイムオンラインログイン状況を搭載。",
+  "description": "英検4~5級レベルの英語学習アプリ。150問以上の豊富な問題、Gemini AIによる書き問題（手書き自動判定）・AI出題、点繋ぎ問題、グッズ装備（マーカー3500⚡️・ものさし5000⚡️・帽子500⚡️など）、リアルタイムログイン状況を搭載。",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

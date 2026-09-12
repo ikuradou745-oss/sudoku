@@ -1,6 +1,8 @@
 import { Question, Modifier } from '../types';
+import { HANDWRITING_QUESTIONS } from './handwritingQuestions';
+import { MORE_QUESTIONS } from './moreQuestions';
 
-export const QUESTION_BANK: Question[] = [
+const BASE_QUESTION_BANK: Question[] = [
   // ==========================================
   // --- 英検5級 基礎 (Eiken Grade 5) ---
   // ==========================================
@@ -818,6 +820,12 @@ export const QUESTION_BANK: Question[] = [
       { id: 'm10_high', left: 'high (たかい)', right: 'low (ひくい) 📉' },
     ],
   }
+];
+
+export const QUESTION_BANK: Question[] = [
+  ...BASE_QUESTION_BANK,
+  ...HANDWRITING_QUESTIONS,
+  ...MORE_QUESTIONS,
 ];
 
 export const DEFAULT_MODIFIERS: Modifier[] = [
