@@ -167,11 +167,11 @@ export async function judgeHandwritingWithAi(params: {
     console.warn('AI handwriting judge fetch warning:', err);
   }
 
-  // If server is unreachable or timed out (e.g., GitHub Pages static hosting or offline)
+  // If server is unreachable or timed out
   return {
-    recognizedText: params.expectedAnswer,
-    isCorrect: true,
-    confidence: 1,
-    feedback: `手書きを記録しました！✍️ 模範解答: ${params.expectedAnswer}`,
+    recognizedText: '(判定不能)',
+    isCorrect: false,
+    confidence: 0,
+    feedback: 'AIサーバーへの接続がタイムアウトしました。通信環境を確認し、もう一度ていねいに書いて「答え合わせ」を押してください。',
   };
 }

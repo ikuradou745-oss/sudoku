@@ -399,11 +399,60 @@ export function HandwritingQuiz({
     if (disabled || isAnswerChecked || isJudging) return;
 
     setWarningMessage(null);
-    const imageBase64 = exportForOcr();
 
-    if (!imageBase64) {
+    const targetWord = (question.correctAnswer || question.english || '').trim();
+    const cleanTarget = targetWord.replace(/[^a-zA-Z]/g, '');
+    const targetLength = Math.max(1, cleanTarget.length);
+
+    const penStrokes = strokes.filter((s) => s.tool === 'pen');
+    const allPenPoints = penStrokes.flatMap((s) => s.points);
+
+    if (penStrokes.length === 0 || allPenPoints.length < 5) {
       audio.playWrong();
       setWarningMessage('ノートに英単語を書いてから「答え合わせ」を押してね！✍️');
+      return;
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let totalPathLength = 0;
+
+    for (const s of penStrokes) {
+      for (let i = 0; i < s.points.length; i++) {
+        const pt = s.points[i];
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+
+        if (i > 0) {
+          totalPathLength += Math.hypot(pt.x - s.points[i - 1].x, pt.y - s.points[i - 1].y);
+        }
+      }
+    }
+
+    const strokeWidth = maxX - minX;
+    const strokeHeight = maxY - minY;
+
+    // Require sufficient physical stroke length, height, and width to match word length
+    const minWidth = Math.max(30, targetLength * 12);
+    const minHeight = 16;
+    const minPath = Math.max(45, targetLength * 18);
+
+    if (strokeWidth < minWidth || strokeHeight < minHeight || totalPathLength < minPath) {
+      audio.playWrong();
+      setWarningMessage(
+        `文字が小さすぎるか短すぎます。ノートの赤線に合わせて「${targetLength}文字」を1文字ずつ丁寧にはっきり書いてね！✍️`
+      );
+      return;
+    }
+
+    const imageBase64 = exportForOcr();
+    if (!imageBase64) {
+      audio.playWrong();
+      setWarningMessage('文字を認識できませんでした。もう一度書いてください。');
       return;
     }
 
@@ -433,9 +482,17 @@ export function HandwritingQuiz({
       });
     } catch {
       setIsJudging(false);
-      onCheckAnswer(true, {
-        recognizedText: question.correctAnswer || question.english,
-        feedback: `手書きを記録しました！✍️ 模範解答: ${question.correctAnswer || question.english}`,
+      audio.playWrong();
+      const fallbackResult = {
+        recognizedText: '(採点エラー)',
+        isCorrect: false,
+        confidence: 0,
+        feedback: '採点中にエラーが発生しました。通信状態を確認して、もう一度丁寧にお書きください。',
+      };
+      setJudgeResult(fallbackResult);
+      onCheckAnswer(false, {
+        recognizedText: fallbackResult.recognizedText,
+        feedback: fallbackResult.feedback,
       });
     }
   };
