@@ -20,7 +20,14 @@ import {
   where
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { UserStats } from '../types';
+import { UserStats, OnlineUserPresence } from '../types';
+
+export function getTodayDateString(now: Date = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 // 1. Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -252,6 +259,102 @@ export function subscribeToOnlineUsers(callback: (users: Record<string, unknown>
       handleFirestoreError(error, OperationType.LIST, targetPath);
     }
   );
+}
+
+// 6. Real-time Firebase Presence & Daily Login Tracking (No Google Login Required)
+export interface FirebasePresenceRecord {
+  userId: string;
+  userName: string;
+  avatarUrl: string | null;
+  rating: number;
+  rankTier: string;
+  lastActive: number;
+  lastLoginDate: string;
+  isOnline: boolean;
+  updatedAt: string;
+}
+
+export async function reportFirebasePresence(stats: UserStats, isOnline = true): Promise<void> {
+  if (!stats.userId) return;
+  const targetPath = `presence/${stats.userId}`;
+  try {
+    const presenceRef = doc(db, 'presence', stats.userId);
+    const todayStr = getTodayDateString();
+    const payload = {
+      userId: stats.userId,
+      userName: (stats.userName || 'うおwりんご会員').substring(0, 30),
+      avatarUrl: stats.avatarUrl || null,
+      rating: typeof stats.rating === 'number' ? stats.rating : 0,
+      rankTier: stats.rankTier || 'bronze',
+      lastActive: Date.now(),
+      lastLoginDate: todayStr,
+      isOnline,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(presenceRef, payload, { merge: true });
+  } catch (error) {
+    console.warn(`[Firebase Presence] could not sync presence to ${targetPath}:`, error);
+  }
+}
+
+export function subscribeToFirebasePresence(
+  callback: (onlineUsers: OnlineUserPresence[], todayUsers: OnlineUserPresence[]) => void
+): () => void {
+  const targetPath = 'presence';
+  try {
+    const q = collection(db, 'presence');
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const now = Date.now();
+        const todayStr = getTodayDateString();
+        const onlineList: OnlineUserPresence[] = [];
+        const todayList: OnlineUserPresence[] = [];
+
+        snapshot.forEach((docSnap) => {
+          const d = docSnap.data() as Partial<FirebasePresenceRecord>;
+          if (!d.userId || !d.userName) return;
+
+          const lastActive = typeof d.lastActive === 'number' ? d.lastActive : 0;
+          // Online condition: isOnline flag is true AND active within the last 2 minutes
+          const isOnlineNow = !!d.isOnline && (now - lastActive) < 120_000;
+          // Today login condition: logged in on today's date or active within last 24 hours
+          const isTodayLogin = d.lastLoginDate === todayStr || (now - lastActive) < 86_400_000;
+
+          const item: OnlineUserPresence = {
+            id: d.userId,
+            name: d.userName,
+            avatarUrl: d.avatarUrl || null,
+            rating: typeof d.rating === 'number' ? d.rating : 0,
+            rankTier: (d.rankTier as any) || 'bronze',
+            lastActive,
+            isOnline: isOnlineNow,
+            lastLoginDate: d.lastLoginDate || todayStr,
+            activity: isOnlineNow ? '学習受講中 ✏️' : '学習完了 ✨',
+          };
+
+          if (isOnlineNow) {
+            onlineList.push(item);
+          }
+          if (isTodayLogin) {
+            todayList.push(item);
+          }
+        });
+
+        // Sort by last active descending
+        onlineList.sort((a, b) => b.lastActive - a.lastActive);
+        todayList.sort((a, b) => b.lastActive - a.lastActive);
+
+        callback(onlineList, todayList);
+      },
+      (error) => {
+        console.warn(`[Firebase Presence] subscription notice on ${targetPath}:`, error);
+      }
+    );
+  } catch (error) {
+    console.warn('[Firebase Presence] subscription failed:', error);
+    return () => {};
+  }
 }
 
 export { onAuthStateChanged };

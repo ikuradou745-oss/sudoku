@@ -9,11 +9,7 @@ import {
   ArrowRight,
   Settings,
   User,
-  Flame,
-  Cloud,
-  LogIn,
-  LogOut,
-  Database
+  Flame
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { 
@@ -25,15 +21,10 @@ import {
 } from '../utils/storage';
 import { getRankInfo } from '../utils/rank';
 import { audio } from '../utils/audio';
-import { realtimePresence } from '../utils/multiplayer';
-import type { FirebaseUser } from '../utils/firebase';
+import { subscribeToFirebasePresence } from '../utils/firebase';
 
 interface HomeScreenProps {
   stats: UserStats;
-  currentUserAuth: FirebaseUser | null;
-  isSyncingCloud?: boolean;
-  onLoginWithGoogle: () => void;
-  onLogout: () => void;
   onStartPractice: () => void;
   onStartDaily: () => void;
   onOpenCommunity: () => void;
@@ -45,10 +36,6 @@ interface HomeScreenProps {
 
 export function HomeScreen({
   stats,
-  currentUserAuth,
-  isSyncingCloud,
-  onLoginWithGoogle,
-  onLogout,
   onStartPractice,
   onStartDaily,
   onOpenCommunity,
@@ -59,7 +46,7 @@ export function HomeScreen({
 }: HomeScreenProps) {
   const [dailyDone, setDailyDone] = useState<boolean>(false);
   const [resetCountdown, setResetCountdown] = useState<string>('');
-  const [onlineCount, setOnlineCount] = useState<number>(() => realtimePresence.getOnlineUsers().length);
+  const [onlineCount, setOnlineCount] = useState<number>(1);
 
   useEffect(() => {
     const isDone = isDailyCompletedToday(stats.lastDailyDate);
@@ -70,15 +57,14 @@ export function HomeScreen({
       setResetCountdown(getNextResetTimeString());
     }, 60000);
 
-    const unsubscribePresence = realtimePresence.subscribe((event) => {
-      if (event.type === 'PRESENCE_SNAPSHOT') {
-        setOnlineCount(event.onlineUsers.length);
-      }
+    // Live online users count from Firebase Firestore
+    const unsubscribeFirebase = subscribeToFirebasePresence((onlineUsers) => {
+      setOnlineCount(Math.max(1, onlineUsers.length));
     });
 
     return () => {
       clearInterval(interval);
-      unsubscribePresence();
+      unsubscribeFirebase();
     };
   }, [stats.lastDailyDate]);
 
@@ -208,51 +194,6 @@ export function HomeScreen({
           <span className="text-[11px] font-mono font-black text-[#1CB0F6] bg-[#EBF7FD] px-2 py-0.5 rounded-md">
             {stats.rating || 0} RP
           </span>
-        </div>
-
-        {/* ☁️ Firebase Cloud Database Sync Widget */}
-        <div className="mt-3">
-          {currentUserAuth ? (
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#F0FDF4] border border-[#86EFAC] text-xs shadow-2xs">
-              <div className="flex items-center gap-1.5 font-black text-[#15803D]">
-                <Cloud className="w-3.5 h-3.5 text-[#16A34A]" />
-                <span>Firestore同期中</span>
-                {isSyncingCloud && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-ping" />
-                )}
-              </div>
-              <span className="text-[#86EFAC]">|</span>
-              <span className="text-[11px] font-bold text-[#4B5563] max-w-[120px] truncate">
-                {currentUserAuth.displayName || currentUserAuth.email || 'Google連携済'}
-              </span>
-              <button
-                id="cloud-logout-btn"
-                onClick={() => {
-                  audio.playTap();
-                  onLogout();
-                }}
-                className="text-[10px] font-bold text-[#9CA3AF] hover:text-[#DC2626] ml-1 underline cursor-pointer flex items-center gap-0.5"
-                title="ログアウト"
-              >
-                <LogOut className="w-2.5 h-2.5" />
-                <span>ログアウト</span>
-              </button>
-            </div>
-          ) : (
-            <button
-              id="google-cloud-login-btn"
-              onClick={() => {
-                audio.playTap();
-                onLoginWithGoogle();
-              }}
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#F8FAFC] hover:bg-[#F1F5F9] border-2 border-[#E2E8F0] hover:border-[#3B82F6] text-xs font-black text-[#334155] transition-all cursor-pointer shadow-xs active:scale-95"
-              title="Googleでログインして学習記録・エネルギー・連勝をFirestoreに保存"
-            >
-              <Database className="w-3.5 h-3.5 text-[#3B82F6]" />
-              <span>Googleログインで学習記録をクラウド保存</span>
-              <LogIn className="w-3 h-3 text-[#64748B]" />
-            </button>
-          )}
         </div>
       </div>
 

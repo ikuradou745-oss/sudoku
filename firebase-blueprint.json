@@ -94,12 +94,55 @@
           "description": "Connection test status"
         }
       }
+    },
+    "Presence": {
+      "title": "Presence",
+      "description": "Real-time online presence and daily login record in Firebase",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "rating": {
+          "type": "number"
+        },
+        "rankTier": {
+          "type": "string"
+        },
+        "lastActive": {
+          "type": "number"
+        },
+        "lastLoginDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "isOnline": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["userId", "userName", "lastActive", "lastLoginDate", "isOnline"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "Learner profile and synchronized game state"
+    },
+    "/presence/{userId}": {
+      "schema": "Presence",
+      "description": "Learner presence status (currently online and today's logins)"
     },
     "/test/connection": {
       "schema": "TestConnection",

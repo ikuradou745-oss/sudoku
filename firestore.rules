@@ -60,6 +60,27 @@ service cloud.firestore {
       allow read: if true;
     }
 
+    function isValidPresence(data, id) {
+      return data.userId is string && data.userId == id &&
+        data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userName is string && data.userName.size() > 0 && data.userName.size() <= 32 &&
+        data.rating is number && data.rating >= 0 &&
+        data.rankTier in ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'heaven'] &&
+        (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() <= 100000)) &&
+        data.lastActive is number &&
+        data.lastLoginDate is string && data.lastLoginDate.size() <= 20 &&
+        data.isOnline is bool &&
+        data.keys().hasAll(['userId', 'userName', 'lastActive', 'lastLoginDate', 'isOnline']) &&
+        data.keys().size() <= 12;
+    }
+
+    // Real-time presence & today login tracking (Firebase)
+    match /presence/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidPresence(incoming(), userId);
+      allow delete: if isValidId(userId);
+    }
+
     // User profiles & stats collection
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId);

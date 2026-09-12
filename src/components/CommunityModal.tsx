@@ -9,7 +9,7 @@ import {
 import { OnlineUserPresence, UserStats } from '../types';
 import { realtimePresence } from '../utils/multiplayer';
 import { audio } from '../utils/audio';
-import { auth, subscribeToOnlineUsers } from '../utils/firebase';
+import { subscribeToFirebasePresence } from '../utils/firebase';
 
 interface CommunityModalProps {
   currentUser: UserStats;
@@ -23,48 +23,48 @@ export function CommunityModal({ currentUser, onClose }: CommunityModalProps) {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
-    // Initial fetch & subscribe from realtimePresence
+    // Initial fetch from socket / local fallback
     setOnlineUsers(realtimePresence.getOnlineUsers());
     setTodayUsers(realtimePresence.getTodayUsers());
 
+    // 1. Subscribe to Firebase real-time presence (Firestore) - no login required
+    const unsubscribeFirebase = subscribeToFirebasePresence((fbOnline, fbToday) => {
+      setOnlineUsers((prev) => {
+        const map = new Map<string, OnlineUserPresence>();
+        prev.forEach((u) => map.set(u.id, u));
+        fbOnline.forEach((u) => map.set(u.id, u));
+        return Array.from(map.values()).sort((a, b) => b.lastActive - a.lastActive);
+      });
+
+      setTodayUsers((prev) => {
+        const map = new Map<string, OnlineUserPresence>();
+        prev.forEach((u) => map.set(u.id, u));
+        fbToday.forEach((u) => map.set(u.id, u));
+        return Array.from(map.values()).sort((a, b) => b.lastActive - a.lastActive);
+      });
+    });
+
+    // 2. Subscribe to realtimePresence
     const unsubscribeRealtime = realtimePresence.subscribe((event) => {
       if (event.type === 'PRESENCE_SNAPSHOT') {
-        setOnlineUsers(event.onlineUsers);
-        setTodayUsers(event.todayUsers);
+        setOnlineUsers((prev) => {
+          const map = new Map<string, OnlineUserPresence>();
+          prev.forEach((u) => map.set(u.id, u));
+          event.onlineUsers.forEach((u) => map.set(u.id, u));
+          return Array.from(map.values()).sort((a, b) => b.lastActive - a.lastActive);
+        });
+        setTodayUsers((prev) => {
+          const map = new Map<string, OnlineUserPresence>();
+          prev.forEach((u) => map.set(u.id, u));
+          event.todayUsers.forEach((u) => map.set(u.id, u));
+          return Array.from(map.values()).sort((a, b) => b.lastActive - a.lastActive);
+        });
       }
     });
 
-    let unsubscribeFirestore: (() => void) | null = null;
-    if (auth.currentUser) {
-      try {
-        unsubscribeFirestore = subscribeToOnlineUsers((docs) => {
-          const firestorePresences: OnlineUserPresence[] = docs.map((d: Record<string, unknown>) => ({
-            id: String(d.userId || ''),
-            name: String(d.userName || 'ユーザー'),
-            avatarUrl: (d.avatarUrl as string) || null,
-            rating: typeof d.rating === 'number' ? d.rating : 0,
-            rankTier: (d.rankTier as any) || 'bronze',
-            lastActive: typeof d.lastActive === 'number' ? d.lastActive : Date.now(),
-            isOnline: !!d.isOnline,
-            lastLoginDate: String(d.lastDailyDate || '今日'),
-            activity: '学習受講中 ✏️',
-          }));
-
-          setOnlineUsers((prev) => {
-            const map = new Map<string, OnlineUserPresence>();
-            prev.forEach((u) => map.set(u.id, u));
-            firestorePresences.forEach((u) => map.set(u.id, u));
-            return Array.from(map.values());
-          });
-        });
-      } catch {
-        // Fallback to socket presence
-      }
-    }
-
     return () => {
+      unsubscribeFirebase();
       unsubscribeRealtime();
-      if (unsubscribeFirestore) unsubscribeFirestore();
     };
   }, []);
 
