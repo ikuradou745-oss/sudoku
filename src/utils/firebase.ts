@@ -13,6 +13,7 @@ import {
   getDoc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
   onSnapshot, 
   getDocFromServer,
   collection,
@@ -20,7 +21,7 @@ import {
   where
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { UserStats, OnlineUserPresence } from '../types';
+import { UserStats, OnlineUserPresence, BanRouletteTriggerEvent, BanRecord } from '../types';
 
 export function getTodayDateString(now: Date = new Date()): string {
   const year = now.getFullYear();
@@ -354,6 +355,108 @@ export function subscribeToFirebasePresence(
   } catch (error) {
     console.warn('[Firebase Presence] subscription failed:', error);
     return () => {};
+  }
+}
+
+// 7. Firebase BAN Roulette and Real-time Ban Synchronization
+export async function triggerFirebaseRoulette(event: BanRouletteTriggerEvent): Promise<void> {
+  try {
+    const rouletteRef = doc(db, 'roulette_events', 'current');
+    await setDoc(rouletteRef, {
+      ...event,
+      createdAt: Date.now(),
+    });
+  } catch (error) {
+    console.warn('[Firebase Roulette] Failed to trigger roulette on Firebase:', error);
+  }
+}
+
+export function subscribeToFirebaseRoulette(
+  onEvent: (event: BanRouletteTriggerEvent) => void
+): () => void {
+  try {
+    const rouletteRef = doc(db, 'roulette_events', 'current');
+    let lastSeenId = '';
+    return onSnapshot(
+      rouletteRef,
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.data() as BanRouletteTriggerEvent;
+        // Ignore events older than 60 seconds or already seen
+        if (data && data.rouletteId && data.rouletteId !== lastSeenId) {
+          const age = Date.now() - (data.createdAt || 0);
+          if (age < 60_000) {
+            lastSeenId = data.rouletteId;
+            onEvent(data);
+          }
+        }
+      },
+      (error) => {
+        console.warn('[Firebase Roulette] Subscription notice:', error);
+      }
+    );
+  } catch (error) {
+    console.warn('[Firebase Roulette] Subscription failed:', error);
+    return () => {};
+  }
+}
+
+export async function recordFirebaseBan(ban: BanRecord): Promise<void> {
+  if (!ban.userId) return;
+  try {
+    const banRef = doc(db, 'bans', ban.userId);
+    await setDoc(banRef, {
+      ...ban,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn('[Firebase Ban] Failed to record ban on Firebase:', error);
+  }
+}
+
+export function subscribeToFirebaseUserBan(
+  userId: string,
+  onBan: (ban: BanRecord | null) => void
+): () => void {
+  if (!userId) return () => {};
+  try {
+    const banRef = doc(db, 'bans', userId);
+    return onSnapshot(
+      banRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          onBan(null);
+          return;
+        }
+        const data = snapshot.data() as BanRecord;
+        if (!data) {
+          onBan(null);
+          return;
+        }
+        // Check if expired
+        if (!data.isPermanent && data.expiresAt && Date.now() > data.expiresAt) {
+          onBan(null);
+          return;
+        }
+        onBan(data);
+      },
+      (error) => {
+        console.warn('[Firebase Ban] Subscription notice:', error);
+      }
+    );
+  } catch (error) {
+    console.warn('[Firebase Ban] Subscription failed:', error);
+    return () => {};
+  }
+}
+
+export async function removeFirebaseBan(userId: string): Promise<void> {
+  if (!userId) return;
+  try {
+    const banRef = doc(db, 'bans', userId);
+    await deleteDoc(banRef);
+  } catch (error) {
+    console.warn('[Firebase Ban] Failed to remove ban on Firebase:', error);
   }
 }
 

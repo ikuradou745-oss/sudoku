@@ -81,6 +81,20 @@ service cloud.firestore {
       allow delete: if isValidId(userId);
     }
 
+    // Real-time BAN roulette event broadcasts
+    match /roulette_events/{eventId} {
+      allow read: if true;
+      allow create, update: if isValidId(eventId);
+      allow delete: if isValidId(eventId);
+    }
+
+    // Real-time Active Bans enforced across all clients
+    match /bans/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId);
+      allow delete: if isValidId(userId);
+    }
+
     // User profiles & stats collection
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId);

@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -526,6 +527,61 @@ async function startServer() {
 
   app.get('/api/presence/members', (req, res) => {
     res.json(getPresenceSnapshot());
+  });
+
+  // ==========================================
+  // Admin & BAN Roulette Endpoints
+  // ==========================================
+  const ADMIN_SALT_PREFIX = 'uow_admin_salt_';
+  const ADMIN_SALT_SUFFIX = '_2026';
+  const ADMIN_EXPECTED_HASH = '191527bb4da18539d86c9f6956b71fa0d44ec350a560ca49dc0f14889779f6f8';
+  const activeBansMap = new Map<string, any>();
+
+  app.post('/api/admin/verify', (req, res) => {
+    const { code } = req.body;
+    const clean = String(code || '').trim().toLowerCase();
+    const salted = `${ADMIN_SALT_PREFIX}${clean}${ADMIN_SALT_SUFFIX}`;
+    const hash = crypto.createHash('sha256').update(salted).digest('hex');
+    if (hash === ADMIN_EXPECTED_HASH) {
+      const token = `adm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return res.json({ success: true, token });
+    }
+    return res.status(401).json({ success: false, error: '認証コードが一致しません。' });
+  });
+
+  app.post('/api/admin/roulette/trigger', (req, res) => {
+    const { event } = req.body;
+    if (!event) return res.status(400).json({ error: 'event required' });
+    // Broadcast to all connected clients via WebSockets and SSE
+    broadcastEvent({
+      type: 'BAN_ROULETTE_TRIGGERED',
+      event,
+    });
+    res.json({ success: true });
+  });
+
+  app.get('/api/admin/bans', (req, res) => {
+    res.json({ bans: Array.from(activeBansMap.values()) });
+  });
+
+  app.post('/api/admin/bans/report', (req, res) => {
+    const { ban } = req.body;
+    if (ban && ban.userId) {
+      activeBansMap.set(ban.userId, ban);
+    }
+    res.json({ success: true });
+  });
+
+  app.post('/api/admin/bans/unban', (req, res) => {
+    const { userId } = req.body;
+    if (userId) {
+      activeBansMap.delete(userId);
+      broadcastEvent({
+        type: 'BAN_REMOVED',
+        userId,
+      });
+    }
+    res.json({ success: true });
   });
 
   // ==========================================

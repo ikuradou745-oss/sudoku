@@ -6,7 +6,11 @@ import { CommunityModal } from './components/CommunityModal';
 import { QuizSession } from './components/QuizSession';
 import { GoodsModal } from './components/GoodsModal';
 import { StoryModeScreen } from './components/StoryModeScreen';
-import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem } from './types';
+import { AdminAuthModal } from './components/AdminAuthModal';
+import { AdminPanelModal } from './components/AdminPanelModal';
+import { BanRouletteModal } from './components/BanRouletteModal';
+import { BannedScreen } from './components/BannedScreen';
+import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem, BanRecord, BanRouletteTriggerEvent } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
   getStoredUserStats, 
@@ -17,8 +21,20 @@ import {
 import { realtimePresence } from './utils/multiplayer';
 import { audio } from './utils/audio';
 import { fetchAiQuestion } from './utils/aiQuestionClient';
-import { reportFirebasePresence } from './utils/firebase';
+import { 
+  reportFirebasePresence, 
+  triggerFirebaseRoulette, 
+  subscribeToFirebaseRoulette, 
+  subscribeToFirebaseUserBan 
+} from './utils/firebase';
 import { getStoryStageQuestions, STORY_MILESTONES } from './utils/storyStages';
+import { 
+  isAdminAuthenticated, 
+  checkAndEnforceReloadViolation, 
+  subscribeToAdminRoulette, 
+  triggerRouletteLocal,
+  clearBanInfo
+} from './utils/adminAuth';
 
 type AppPhase = 'home' | 'quiz' | 'story';
 
@@ -32,6 +48,12 @@ export function App() {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showCommunityModal, setShowCommunityModal] = useState<boolean>(false);
   const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
+
+  // Admin & BAN states
+  const [showAdminAuth, setShowAdminAuth] = useState<boolean>(false);
+  const [showAdminPanel, setShowAdminPanel] = useState<boolean>(false);
+  const [activeRouletteEvent, setActiveRouletteEvent] = useState<BanRouletteTriggerEvent | null>(null);
+  const [currentBan, setCurrentBan] = useState<BanRecord | null>(null);
 
   // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily' | 'story'>('practice');
@@ -82,6 +104,109 @@ export function App() {
       );
     }
   }, [stats.userId, stats.userName, stats.avatarUrl, stats.rating, stats.rankTier]);
+
+  // Check reload violation and active ban on startup & subscribe to roulette events
+  useEffect(() => {
+    const currentUid = stats.userId || 'local_user';
+    const { ban } = checkAndEnforceReloadViolation({
+      id: currentUid,
+      name: stats.userName || 'ユーザー',
+    });
+    if (ban) {
+      setCurrentBan(ban);
+    }
+
+    // Subscribe to admin roulette events (cross-tab via BroadcastChannel)
+    const unsubLocal = subscribeToAdminRoulette(
+      currentUid,
+      (event) => {
+        setActiveRouletteEvent(event);
+      },
+      () => {
+        setCurrentBan(null);
+      }
+    );
+
+    // Subscribe to server-side realtime events (SSE / WebSocket)
+    const unsubRealtime = realtimePresence.subscribe((event) => {
+      if (event.type === 'BAN_ROULETTE_TRIGGERED') {
+        const ev = event.event;
+        if (ev.targetType === 'all' || ev.targetUserId === stats.userId) {
+          setActiveRouletteEvent(ev);
+        }
+      } else if (event.type === 'BAN_REMOVED') {
+        if (!event.userId || event.userId === stats.userId) {
+          setCurrentBan(null);
+          clearBanInfo();
+        }
+      }
+    });
+
+    // Subscribe to Firebase real-time roulette broadcasts
+    const unsubFirebaseRoulette = subscribeToFirebaseRoulette((ev) => {
+      if (ev.targetType === 'all' || ev.targetUserId === stats.userId) {
+        setActiveRouletteEvent(ev);
+      }
+    });
+
+    // Subscribe to Firebase active bans for this user
+    const unsubFirebaseBan = subscribeToFirebaseUserBan(currentUid, (remoteBan) => {
+      if (remoteBan) {
+        setCurrentBan(remoteBan);
+      } else {
+        // If remote ban was removed and current ban was not caused by reload
+        setCurrentBan((prev) => {
+          if (prev && !prev.bannedByReload) {
+            clearBanInfo();
+            return null;
+          }
+          return prev;
+        });
+      }
+    });
+
+    return () => {
+      unsubLocal();
+      unsubRealtime();
+      unsubFirebaseRoulette();
+      unsubFirebaseBan();
+    };
+  }, [stats.userId, stats.userName]);
+
+  const handleOpenAdmin = () => {
+    if (isAdminAuthenticated()) {
+      setShowAdminPanel(true);
+    } else {
+      setShowAdminAuth(true);
+    }
+  };
+
+  const handleAdminAuthSuccess = () => {
+    setShowAdminAuth(false);
+    setShowAdminPanel(true);
+  };
+
+  const handleTriggerRoulette = async (event: BanRouletteTriggerEvent) => {
+    // 1. Trigger local BroadcastChannel
+    triggerRouletteLocal(event);
+
+    // 2. Broadcast to Firebase Firestore so all clients and devices receive it in real-time
+    triggerFirebaseRoulette(event).catch(console.warn);
+
+    // 3. Express server notification
+    try {
+      await fetch('/api/admin/roulette/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event }),
+      });
+    } catch {
+      // Offline fallback
+    }
+
+    // 4. Always show the active roulette modal for the admin to watch / spin
+    setActiveRouletteEvent(event);
+  };
 
   // Update storage when stats change
   const updateStats = (updater: (prev: UserStats) => UserStats) => {
@@ -283,6 +408,15 @@ export function App() {
     });
   };
 
+  if (currentBan) {
+    return (
+      <BannedScreen
+        ban={currentBan}
+        onUnban={() => setCurrentBan(null)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col justify-between selection:bg-[#58CC02] selection:text-white">
       {/* Main View Area */}
@@ -297,6 +431,7 @@ export function App() {
             onOpenGoods={() => setShowGoodsModal(true)}
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
+            onOpenAdmin={handleOpenAdmin}
             soundEnabled={soundEnabled}
           />
         )}
@@ -361,6 +496,40 @@ export function App() {
             onEquipGoods={handleEquipGoods}
             onBuyGoods={handleBuyGoods}
             onClose={() => setShowGoodsModal(false)}
+          />
+        )}
+
+        {/* 🛡️ Admin Authentication Modal (Code Entry) */}
+        {showAdminAuth && (
+          <AdminAuthModal
+            onClose={() => setShowAdminAuth(false)}
+            onSuccess={handleAdminAuthSuccess}
+          />
+        )}
+
+        {/* 🛡️ Admin Panel Modal */}
+        {showAdminPanel && (
+          <AdminPanelModal
+            currentUserId={stats.userId || 'local_user'}
+            currentUserName={stats.userName || 'うおリンゴ会員'}
+            onClose={() => setShowAdminPanel(false)}
+            onTriggerRoulette={handleTriggerRoulette}
+          />
+        )}
+
+        {/* 🎲 Active BAN Roulette Modal */}
+        {activeRouletteEvent && (
+          <BanRouletteModal
+            event={activeRouletteEvent}
+            currentUserId={stats.userId || 'local_user'}
+            currentUserName={stats.userName || 'うおリンゴ会員'}
+            onSafeResolved={() => {
+              setActiveRouletteEvent(null);
+            }}
+            onBanResolved={(ban) => {
+              setActiveRouletteEvent(null);
+              setCurrentBan(ban);
+            }}
           />
         )}
       </main>

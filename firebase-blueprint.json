@@ -133,6 +133,41 @@
         }
       },
       "required": ["userId", "userName", "lastActive", "lastLoginDate", "isOnline"]
+    },
+    "RouletteEvent": {
+      "title": "RouletteEvent",
+      "description": "Active BAN roulette event broadcast across clients",
+      "type": "object",
+      "properties": {
+        "rouletteId": { "type": "string" },
+        "targetType": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "targetUserName": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "isPermanent": { "type": "boolean" },
+        "durationLabel": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["rouletteId", "targetType", "targetUserId", "targetUserName", "createdAt"]
+    },
+    "ActiveBan": {
+      "title": "ActiveBan",
+      "description": "Active ban record for a user enforced across devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "isPermanent": { "type": "boolean" },
+        "bannedAt": { "type": "number" },
+        "expiresAt": { "type": "number" },
+        "durationMinutes": { "type": "number" },
+        "durationLabel": { "type": "string" },
+        "reason": { "type": "string" },
+        "bannedByReload": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "userName", "isPermanent", "bannedAt"]
     }
   },
   "firestore": {
@@ -143,6 +178,14 @@
     "/presence/{userId}": {
       "schema": "Presence",
       "description": "Learner presence status (currently online and today's logins)"
+    },
+    "/roulette_events/{eventId}": {
+      "schema": "RouletteEvent",
+      "description": "Active BAN roulette event broadcast across clients"
+    },
+    "/bans/{userId}": {
+      "schema": "ActiveBan",
+      "description": "Active ban record for a user enforced across devices"
     },
     "/test/connection": {
       "schema": "TestConnection",

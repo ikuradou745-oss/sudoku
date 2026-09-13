@@ -9,7 +9,8 @@ import {
   ArrowRight,
   Settings,
   User,
-  Flame
+  Flame,
+  ShieldAlert
 } from 'lucide-react';
 import { UserStats } from '../types';
 import { 
@@ -33,6 +34,7 @@ interface HomeScreenProps {
   onOpenGoods: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
+  onOpenAdmin: () => void;
   soundEnabled: boolean;
 }
 
@@ -45,6 +47,7 @@ export function HomeScreen({
   onOpenGoods,
   onToggleSound,
   onOpenProfile,
+  onOpenAdmin,
   soundEnabled,
 }: HomeScreenProps) {
   const [dailyDone, setDailyDone] = useState<boolean>(false);
@@ -170,6 +173,20 @@ export function HomeScreen({
               <span className="w-2 h-2 rounded-full bg-[#58CC02] animate-pulse" />
               <span>{onlineCount}人</span>
             </span>
+          </button>
+
+          {/* 🛡️ 管理者パネル Button */}
+          <button
+            id="admin-panel-btn"
+            onClick={() => {
+              audio.playTap();
+              onOpenAdmin();
+            }}
+            className="h-10 px-2.5 rounded-2xl bg-[#FFF0F0] hover:bg-[#FFE5E5] border-2 border-[#FFCACA] hover:border-[#FF4B4B] flex items-center gap-1 transition-all cursor-pointer shadow-xs active:scale-95 text-[#FF4B4B]"
+            title="🛡️ 管理者パネル（コード認証が必要）"
+          >
+            <ShieldAlert className="w-4 h-4" />
+            <span className="text-[11px] font-black hidden sm:inline">管理者</span>
           </button>
         </div>
       </header>

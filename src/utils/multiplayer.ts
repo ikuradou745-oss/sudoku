@@ -1,7 +1,8 @@
 import { 
   OnlineUserPresence, 
   RankedMatchSession, 
-  RankTier
+  RankTier,
+  BanRouletteTriggerEvent
 } from '../types';
 
 export interface PartyInfo {
@@ -58,6 +59,8 @@ export type RealtimeEvent =
       bonusNum: number; 
     }
   | { type: 'CONNECTION_STATUS'; connected: boolean; broker: string }
+  | { type: 'BAN_ROULETTE_TRIGGERED'; event: BanRouletteTriggerEvent }
+  | { type: 'BAN_REMOVED'; userId?: string }
   | { type: 'ERROR'; message: string };
 
 type EventListener = (event: RealtimeEvent) => void;

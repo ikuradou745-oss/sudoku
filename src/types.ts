@@ -89,6 +89,34 @@ export interface UserStats {
   hasOpenedRewardModal?: boolean;
 }
 
+export type BanDurationType = 'permanent' | 'custom';
+export type BanDurationUnit = 'minutes' | 'hours' | 'days';
+
+export interface BanRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  isPermanent: boolean;
+  bannedAt: number;
+  expiresAt: number | null; // null if permanent
+  durationMinutes: number;
+  durationLabel: string;
+  reason: string;
+  bannedByReload?: boolean;
+}
+
+export interface BanRouletteTriggerEvent {
+  rouletteId: string;
+  targetType: 'single' | 'all';
+  targetUserId?: string;
+  targetUserName?: string;
+  durationMinutes: number;
+  isPermanent: boolean;
+  durationLabel: string;
+  reason?: string;
+  createdAt: number;
+}
+
 export interface OnlineUserPresence {
   id: string;
   name: string;

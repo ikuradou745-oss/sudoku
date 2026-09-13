@@ -166,6 +166,80 @@ class AudioManager {
     this.playMatchFound();
   }
 
+  // Play roulette ticking sound when passing a peg
+  playRouletteTick(pitchMultiplier: number = 1.0) {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const freq = 600 * pitchMultiplier;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.03);
+
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.03);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Play roulette alarm / emergency siren when targeted or BAN
+  playRouletteAlarm() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      const notes = [350, 260, 350, 260];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.15);
+
+        gain.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + idx * 0.15 + 0.14);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + idx * 0.15);
+        osc.stop(ctx.currentTime + idx * 0.15 + 0.14);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Play joyous safe fanfare when SAFE on roulette
+  playRouletteFanfare() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      const chord = [523.25, 659.25, 783.99, 1046.5, 1318.5]; // C E G C E
+      chord.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
+
+        gain.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.4);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + idx * 0.08);
+        osc.stop(ctx.currentTime + idx * 0.08 + 0.45);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
   // Speak English sentence via browser SpeechSynthesis
   speakEnglish(text: string) {
     if (!this.soundEnabled || !('speechSynthesis' in window)) return;

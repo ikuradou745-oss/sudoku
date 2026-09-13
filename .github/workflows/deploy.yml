@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,9 +34,8 @@ jobs:
 
       - name: Build Vite App
         run: |
-          npx vite build --base=./
+          npm run build
           touch ./dist/.nojekyll
-          cp ./dist/index.html ./dist/404.html
 
       # 1. Deploy to 'gh-pages' branch (Works with "Deploy from a branch")
       - name: Deploy to gh-pages branch
