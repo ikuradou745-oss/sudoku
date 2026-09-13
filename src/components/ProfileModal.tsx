@@ -551,14 +551,26 @@ export function ProfileModal({
           </div>
 
           <p className="text-[11px] text-[#AFAFAF] font-bold mb-2">
-            ※称号はショップでは購入できません。ストーリーモードなどの到達報酬で獲得できます。
+            ※称号は毎日のログイン継続やストーリーモードの到達によって獲得できます。
           </p>
 
           {/* Titles List */}
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
             {getAllTitles().map((title) => {
               const unlockedList = stats?.unlockedTitles || ['beginner', 'today_login'];
-              const isUnlocked = unlockedList.includes(title.id) || title.id === 'beginner' || title.id === 'today_login';
+              const loginDays = stats?.loginDaysCount || 1;
+              const streak = stats?.streak || 1;
+              const stage = stats?.storyCurrentStage || 1;
+
+              const isUnlocked = 
+                unlockedList.includes(title.id) || 
+                title.id === 'beginner' || 
+                title.id === 'today_login' ||
+                (title.id === 'week_login' && (loginDays >= 7 || streak >= 7)) ||
+                (title.id === 'month_login' && (loginDays >= 30 || streak >= 30)) ||
+                (title.id === 'three_months_login' && (loginDays >= 90 || streak >= 90)) ||
+                (title.id === 'gold' && stage >= 150);
+
               const isEquipped = selectedTitle === title.id;
 
               return (

@@ -22,7 +22,6 @@ import { AdModal } from './AdModal';
 import { GoodsHUD } from './GoodsHUD';
 import { PencilHintCard, MarkerOverlay, RulerGuideCard } from './GoodsVisualEffects';
 import { DotConnectQuiz } from './DotConnectQuiz';
-import { HandwritingQuiz } from './HandwritingQuiz';
 
 interface QuizSessionProps {
   mode: 'practice' | 'daily' | 'story';
@@ -190,39 +189,6 @@ export function QuizSession({
       }
       if (equippedSub === 'eraser') {
         setSubCharge((prev) => Math.min(100, prev + 25));
-      }
-    } else {
-      // Check Marker Pen ability: Invalidate miss once and retry
-      if (equippedMain === 'marker' && !markerUsed) {
-        audio.playTap();
-        setMarkerUsed(true);
-        setShowMarkerOverlay(true);
-        return;
-      }
-
-      handleMistake();
-    }
-  };
-
-  // Handle Handwriting (書き問題) Result
-  const handleHandwritingResult = (isHandwritingCorrect: boolean) => {
-    if (isAnswerChecked) return;
-
-    if (isHandwritingCorrect) {
-      audio.playCorrect();
-      setIsCorrect(true);
-      setIsAnswerChecked(true);
-
-      // Charge equipped stationery
-      if (equippedMain === 'pencil') {
-        setMainCharge((prev) => Math.min(100, prev + 25));
-      }
-      if (equippedSub === 'eraser') {
-        setSubCharge((prev) => Math.min(100, prev + 25));
-      }
-
-      if (currentQ?.correctAnswer || currentQ?.english) {
-        audio.speakEnglish(currentQ.correctAnswer || currentQ.english);
       }
     } else {
       // Check Marker Pen ability: Invalidate miss once and retry
@@ -714,13 +680,17 @@ export function QuizSession({
         {/* Question Type & (Optional) Audio Header */}
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-3 py-1 rounded-full text-xs font-black bg-[#E5E5E5] text-[#4B4B4B]">
+            <span className={`px-3 py-1 rounded-full text-xs font-black ${
+              currentQ.type === 'correct_sentence'
+                ? 'bg-[#EEFDEB] text-[#15803D] border border-[#BBF7D0]'
+                : 'bg-[#E5E5E5] text-[#4B4B4B]'
+            }`}>
               {currentQ.type === 'order' && '自分で文を組み立てる (語順並べ替え)'}
               {currentQ.type === 'blank' && '空欄補充 (穴埋め)'}
               {currentQ.type === 'translate' && '英単語・意味選択'}
               {currentQ.type === 'dialogue' && '会話の応答'}
               {currentQ.type === 'matching' && '🔗 点繋ぎ (ペアマッチング)'}
-              {currentQ.type === 'handwriting' && '✍️ 書き問題 (手書き・AI判定)'}
+              {currentQ.type === 'correct_sentence' && '✅ 文が合ってるのはどれ？'}
             </span>
 
             {/* AI Generated Question Badge */}
@@ -732,8 +702,8 @@ export function QuizSession({
             )}
           </div>
 
-          {/* Do NOT show audio listening button for 'order', 'matching', and 'handwriting' */}
-          {currentQ.type !== 'order' && currentQ.type !== 'matching' && currentQ.type !== 'handwriting' && (
+          {/* Do NOT show audio listening button before answering for 'order', 'matching', and 'correct_sentence' */}
+          {currentQ.type !== 'order' && currentQ.type !== 'matching' && currentQ.type !== 'correct_sentence' && (
             <button
               onClick={() => {
                 audio.playTap();
@@ -745,13 +715,27 @@ export function QuizSession({
               <span>音声を聴く</span>
             </button>
           )}
+
+          {/* For correct_sentence, show audio button AFTER checked */}
+          {currentQ.type === 'correct_sentence' && isAnswerChecked && (
+            <button
+              onClick={() => {
+                audio.playTap();
+                audio.speakEnglish(currentQ.correctAnswer || currentQ.english);
+              }}
+              className="p-2 rounded-xl bg-[#EEFDEB] border-2 border-[#BBF7D0] text-[#15803D] hover:bg-[#DCFCE7] flex items-center gap-1 text-xs font-bold"
+            >
+              <Volume2 className="w-4 h-4" />
+              <span>正解文の音声を聴く</span>
+            </button>
+          )}
         </div>
 
         {/* Goods Visual Ability Triggers (Pencil & Ruler) */}
-        {pencilActive && currentQ.type !== 'handwriting' && (
+        {pencilActive && (
           <PencilHintCard question={currentQ} />
         )}
-        {isRulerActiveCurrentQ && currentQ.type !== 'handwriting' && (
+        {isRulerActiveCurrentQ && (
           <RulerGuideCard question={currentQ} />
         )}
 
@@ -761,21 +745,10 @@ export function QuizSession({
         </h2>
 
         {/* Prompt Sentence if exists */}
-        {currentQ.promptSentence && currentQ.type !== 'dialogue' && currentQ.type !== 'matching' && currentQ.type !== 'handwriting' && (
+        {currentQ.promptSentence && currentQ.type !== 'dialogue' && currentQ.type !== 'matching' && (
           <div className="p-4 bg-[#F7F7F7] border-2 border-[#E5E5E5] rounded-2xl text-lg font-black text-[#3C3C3C] mb-6 font-mono-code text-center">
             {currentQ.promptSentence}
           </div>
-        )}
-
-        {/* --- QUESTION TYPE: HANDWRITING (手書き英単語) --- */}
-        {currentQ.type === 'handwriting' && (
-          <HandwritingQuiz
-            question={currentQ}
-            isAnswerChecked={isAnswerChecked}
-            isCorrect={isCorrect}
-            onCheckAnswer={handleHandwritingResult}
-            disabled={isGameOver || isCleared}
-          />
         )}
 
         {/* --- QUESTION TYPE: MATCHING (点繋ぎ) --- */}
@@ -828,9 +801,9 @@ export function QuizSession({
           </div>
         )}
 
-        {/* --- QUESTION TYPE: MULTIPLE CHOICE (blank, translate, dialogue) --- */}
-        {currentQ.type !== 'order' && currentQ.type !== 'matching' && currentQ.type !== 'handwriting' && shuffledChoices.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* --- QUESTION TYPE: MULTIPLE CHOICE (blank, translate, dialogue, correct_sentence) --- */}
+        {currentQ.type !== 'order' && currentQ.type !== 'matching' && shuffledChoices.length > 0 && (
+          <div className={`grid gap-3 ${currentQ.type === 'correct_sentence' ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
             {shuffledChoices.map((choice, idx) => {
               const isSelected = selectedAnswer === choice;
               const isHidden = hiddenChoices.includes(choice);
@@ -872,8 +845,8 @@ export function QuizSession({
                   disabled={isAnswerChecked}
                   className={`duo-btn ${choiceStyle} p-4 rounded-2xl text-left font-black text-base flex items-center justify-between transition-all cursor-pointer`}
                 >
-                  <span>{choice}</span>
-                  <span className="w-6 h-6 rounded-lg bg-white/60 border border-[#E5E5E5] flex items-center justify-center text-xs font-black text-[#AFAFAF]">
+                  <span className="font-mono-code text-sm sm:text-base leading-snug">{choice}</span>
+                  <span className="w-6 h-6 shrink-0 ml-2 rounded-lg bg-white/60 border border-[#E5E5E5] flex items-center justify-center text-xs font-black text-[#AFAFAF]">
                     {idx + 1}
                   </span>
                 </button>
@@ -928,11 +901,9 @@ export function QuizSession({
           {/* Action Button: Check OR Next */}
           <div className="w-full sm:w-auto sm:min-w-[160px] sm:ml-auto">
             {!isAnswerChecked ? (
-              currentQ.type === 'matching' || currentQ.type === 'handwriting' ? (
+              currentQ.type === 'matching' ? (
                 <div className="text-xs font-bold text-[#777777] text-center sm:text-right py-2">
-                  {currentQ.type === 'matching'
-                    ? '※ 上の「答え合わせ」ボタンを押してください'
-                    : '※ 上の「答え合わせ (AIが自動判定)」を押してください'}
+                  ※ 上の「答え合わせ」ボタンを押してください
                 </div>
               ) : (
                 <button

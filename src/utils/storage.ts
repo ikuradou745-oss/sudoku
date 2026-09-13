@@ -16,18 +16,64 @@ function getOrCreatePersistentUserId(): string {
   }
 }
 
+const VALID_TITLE_IDS = new Set(['beginner', 'today_login', 'week_login', 'month_login', 'three_months_login', 'gold']);
+
 export function getStoredUserStats(): UserStats {
   const persistentId = getOrCreatePersistentUserId();
+  const todayKey = getCurrentDailyCycleKey();
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       const userId = parsed.userId || persistentId;
       const rating = typeof parsed.rating === 'number' ? parsed.rating : 0;
+      const streak = typeof parsed.streak === 'number' ? parsed.streak : 1;
+
+      // Track login dates and total cumulative login days
+      const existingDates: string[] = Array.isArray(parsed.loginDates) ? parsed.loginDates : [];
+      const updatedLoginDates = existingDates.includes(todayKey) 
+        ? existingDates 
+        : [...existingDates, todayKey];
+      const loginDaysCount = typeof parsed.loginDaysCount === 'number'
+        ? (existingDates.includes(todayKey) ? parsed.loginDaysCount : parsed.loginDaysCount + 1)
+        : Math.max(1, updatedLoginDates.length, streak);
+
+      // Clean and unlock titles
+      const currentUnlocked: string[] = Array.isArray(parsed.unlockedTitles) ? parsed.unlockedTitles : [];
+      const validUnlocked = new Set<string>(currentUnlocked.filter((t) => VALID_TITLE_IDS.has(t)));
+      
+      // Default titles
+      validUnlocked.add('beginner');
+      validUnlocked.add('today_login');
+
+      // Login milestone titles
+      if (loginDaysCount >= 7 || streak >= 7) {
+        validUnlocked.add('week_login');
+      }
+      if (loginDaysCount >= 30 || streak >= 30) {
+        validUnlocked.add('month_login');
+      }
+      if (loginDaysCount >= 90 || streak >= 90) {
+        validUnlocked.add('three_months_login');
+      }
+
+      // Gold title condition (Story stage 150+ or already unlocked)
+      const storyCurrentStage = typeof parsed.storyCurrentStage === 'number' ? parsed.storyCurrentStage : 1;
+      if (storyCurrentStage >= 150) {
+        validUnlocked.add('gold');
+      }
+
+      const unlockedTitles = Array.from(validUnlocked);
+      let equippedTitle = parsed.equippedTitle;
+      if (!equippedTitle || !VALID_TITLE_IDS.has(equippedTitle)) {
+        equippedTitle = 'beginner';
+      }
+
       const stats: UserStats = {
         userId,
         energy: typeof parsed.energy === 'number' ? parsed.energy : 10,
-        streak: typeof parsed.streak === 'number' ? parsed.streak : 1,
+        streak,
         lastDailyDate: parsed.lastDailyDate || null,
         completedSessions: parsed.completedSessions || 0,
         perfectSessions: parsed.perfectSessions || 0,
@@ -44,20 +90,25 @@ export function getStoredUserStats(): UserStats {
         unlockedGoods: Array.isArray(parsed.unlockedGoods) 
           ? parsed.unlockedGoods.filter((id: string) => id !== 'ramoHat') 
           : ['pencil', 'eraser'],
+        equippedTitle,
+        unlockedTitles,
+        loginDaysCount,
+        loginDates: updatedLoginDates,
+        storyCurrentStage,
+        claimedStoryMilestones: Array.isArray(parsed.claimedStoryMilestones) ? parsed.claimedStoryMilestones : [],
         claimedBonusCodes: Array.isArray(parsed.claimedBonusCodes) 
           ? parsed.claimedBonusCodes.filter((c: string) => c !== 'ramo_hat_secret') 
           : [],
         hasOpenedRewardModal: !!parsed.hasOpenedRewardModal,
       };
-      // Ensure userId is saved
-      if (!parsed.userId) {
-        saveUserStats(stats);
-      }
+
+      saveUserStats(stats);
       return stats;
     }
   } catch {
     // Ignore error
   }
+
   const initialStats: UserStats = {
     userId: persistentId,
     energy: 10,
@@ -76,6 +127,12 @@ export function getStoredUserStats(): UserStats {
     equippedMainGoods: 'pencil',
     equippedSubGoods: 'eraser',
     unlockedGoods: ['pencil', 'eraser'],
+    equippedTitle: 'beginner',
+    unlockedTitles: ['beginner', 'today_login'],
+    loginDaysCount: 1,
+    loginDates: [todayKey],
+    storyCurrentStage: 1,
+    claimedStoryMilestones: [],
     claimedBonusCodes: [],
     hasOpenedRewardModal: false,
   };

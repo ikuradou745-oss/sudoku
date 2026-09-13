@@ -1,4 +1,4 @@
-export type QuestionType = 'order' | 'blank' | 'translate' | 'dialogue' | 'matching' | 'handwriting';
+export type QuestionType = 'order' | 'blank' | 'translate' | 'dialogue' | 'matching' | 'correct_sentence';
 
 export type QuestionDifficulty = '5kyu' | '4kyu' | 'long';
 
@@ -19,16 +19,13 @@ export interface Question {
   promptSentence?: string;
   // For 'order': scrambled words (strictly 5 to 6 words)
   wordOptions?: string[];
-  // For 'blank', 'translate', 'dialogue'
+  // For 'blank', 'translate', 'dialogue', 'correct_sentence'
   choices?: string[];
   correctAnswer: string;
   explanation?: string;
   audioPrompt?: string;
   // For 'matching' (点繋ぎ)
   matchingPairs?: MatchingPair[];
-  // For 'handwriting' (手書き問題)
-  handwritingGuide?: string;
-  acceptableAnswers?: string[];
   // For AI questions
   isAiGenerated?: boolean;
 }
@@ -82,6 +79,8 @@ export interface UserStats {
   // Titles System
   equippedTitle?: string;
   unlockedTitles?: string[];
+  loginDaysCount?: number; // Total cumulative login days count
+  loginDates?: string[]; // Recorded login cycle keys ['YYYY-MM-DD', ...]
   // Story Mode System (1~200 stages)
   storyCurrentStage?: number; // 1 to 200
   claimedStoryMilestones?: number[]; // [50, 100, 150, 200]

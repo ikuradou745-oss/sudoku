@@ -512,5 +512,120 @@ export const MORE_QUESTIONS: Question[] = [
     english: 'I want to learn English to help foreign people in the future.',
     explanation: '不定詞の副詞的用法「to ＋ 動詞の原形（help）」で「〜するために」という意味になります。',
     audioPrompt: 'I want to learn English to help foreign people in the future.'
+  },
+  // --- 新規追加: 英検5級〜4級の重要日常会話・文法問題 ---
+  {
+    id: 'more_extra_01',
+    type: 'blank',
+    difficulty: '5kyu',
+    japanese: '私の父は毎朝コーヒーを飲みます。',
+    promptSentence: 'My father ____ coffee every morning.',
+    choices: ['drinks', 'drink', 'drinking', 'drank'],
+    correctAnswer: 'drinks',
+    english: 'My father drinks coffee every morning.',
+    explanation: '主語が三人称単数の My father なので drinks となります。',
+    audioPrompt: 'My father drinks coffee every morning.'
+  },
+  {
+    id: 'more_extra_02',
+    type: 'blank',
+    difficulty: '5kyu',
+    japanese: '私たちは毎週土曜日にテニスを練習します。',
+    promptSentence: 'We ____ tennis every Saturday.',
+    choices: ['practice', 'practices', 'practicing', 'practiced'],
+    correctAnswer: 'practice',
+    english: 'We practice tennis every Saturday.',
+    explanation: '主語が複数（We）なので原形の practice です。',
+    audioPrompt: 'We practice tennis every Saturday.'
+  },
+  {
+    id: 'more_extra_03',
+    type: 'order',
+    difficulty: '5kyu',
+    japanese: '彼女は上手にピアノを弾きます。',
+    wordOptions: ['She', 'plays', 'the', 'piano', 'well.'],
+    correctAnswer: 'She plays the piano well.',
+    english: 'She plays the piano well.',
+    explanation: '主語＋動詞＋目的語＋副詞の語順です。楽器の前には the を置きます。'
+  },
+  {
+    id: 'more_extra_04',
+    type: 'dialogue',
+    difficulty: '5kyu',
+    japanese: '会話を完成させよう：ペンを借りてもいいですか？',
+    promptSentence: 'A: Can I use your pen?\nB: ____, here you are.',
+    choices: ['Sure', 'No', 'Sorry', 'Never'],
+    correctAnswer: 'Sure',
+    english: 'Sure, here you are.',
+    explanation: '依頼を快諾するときは「Sure（もちろん）」と答えます。',
+    audioPrompt: 'Sure, here you are.'
+  },
+  {
+    id: 'more_extra_05',
+    type: 'blank',
+    difficulty: '4kyu',
+    japanese: '私は昨日新しい自転車を買いました。',
+    promptSentence: 'I ____ a new bicycle yesterday.',
+    choices: ['bought', 'buy', 'buys', 'buying'],
+    correctAnswer: 'bought',
+    english: 'I bought a new bicycle yesterday.',
+    explanation: 'yesterday（昨日）があるので過去形 bought（buyの過去形）を選びます。',
+    audioPrompt: 'I bought a new bicycle yesterday.'
+  },
+  {
+    id: 'more_extra_06',
+    type: 'blank',
+    difficulty: '4kyu',
+    japanese: 'この映画はあの映画よりも人気があります。',
+    promptSentence: 'This movie is ____ than that one.',
+    choices: ['more popular', 'popularer', 'most popular', 'popular'],
+    correctAnswer: 'more popular',
+    english: 'This movie is more popular than that one.',
+    explanation: 'popular は比較級で「more popular」になります。',
+    audioPrompt: 'This movie is more popular than that one.'
+  },
+  {
+    id: 'more_extra_07',
+    type: 'order',
+    difficulty: '4kyu',
+    japanese: '彼は早く起きなければなりません。',
+    wordOptions: ['He', 'has', 'to', 'get', 'up', 'early.'],
+    correctAnswer: 'He has to get up early.',
+    english: 'He has to get up early.',
+    explanation: '三人称単数の義務表現「has to ＋ 動詞の原形（get up）」です。'
+  },
+  {
+    id: 'more_extra_08',
+    type: 'dialogue',
+    difficulty: '4kyu',
+    japanese: '会話を完成させよう：駅への道を教えていただけますか？',
+    promptSentence: 'A: Excuse me. How can I get to the station?\nB: ____ straight and turn right.',
+    choices: ['Go', 'Went', 'Going', 'Goes'],
+    correctAnswer: 'Go',
+    english: 'Go straight and turn right.',
+    explanation: '道案内で指示を出す命令文なので動詞の原形 Go で始めます。',
+    audioPrompt: 'Go straight and turn right.'
+  },
+  {
+    id: 'more_extra_09',
+    type: 'blank',
+    difficulty: '4kyu',
+    japanese: '私は泳ぐことがとても好きです。',
+    promptSentence: 'I enjoy ____ in the sea.',
+    choices: ['swimming', 'to swim', 'swims', 'swam'],
+    correctAnswer: 'swimming',
+    english: 'I enjoy swimming in the sea.',
+    explanation: '動詞 enjoy の目的語には動名詞（〜ing形）をとります。swim は m を重ねて swimming です。',
+    audioPrompt: 'I enjoy swimming in the sea.'
+  },
+  {
+    id: 'more_extra_10',
+    type: 'order',
+    difficulty: 'long',
+    japanese: 'これは私の母によって作られたケーキです。',
+    wordOptions: ['This', 'cake', 'was', 'made', 'by', 'mother.'],
+    correctAnswer: 'This cake was made by mother.',
+    english: 'This cake was made by mother.',
+    explanation: '受動態「was made by ...（〜によって作られた）」の形です。'
   }
 ];

@@ -15,17 +15,15 @@ export const STORY_MILESTONES: Record<number, StoryMilestone> = {
   50: {
     stage: 50,
     rewardType: 'energy',
-    rewardLabel: '3,000⚡️ ＆ 称号「英検チャレンジャー」',
+    rewardLabel: '3,000⚡️ エネルギーボーナス！',
     energyAmount: 3000,
-    titleId: 'eiken_challenger',
     icon: '🎁',
   },
   100: {
     stage: 100,
     rewardType: 'energy',
-    rewardLabel: '7,500⚡️ ＆ 称号「単語マスター」',
+    rewardLabel: '7,500⚡️ エネルギーボーナス！',
     energyAmount: 7500,
-    titleId: 'word_master',
     icon: '💎',
   },
   150: {
@@ -38,9 +36,9 @@ export const STORY_MILESTONES: Record<number, StoryMilestone> = {
   200: {
     stage: 200,
     rewardType: 'sub_goods',
-    rewardLabel: 'サブグッズ「鉛筆削り」＆ 称号「ストーリー制覇者」',
+    rewardLabel: 'サブグッズ「鉛筆削り」＆ 10,000⚡️！',
     goodsId: 'pencil_sharpener',
-    titleId: 'story_conqueror',
+    energyAmount: 10000,
     icon: '🏆',
   },
 };
@@ -122,7 +120,7 @@ export function getStoryStageQuestions(stageNumber: number): Question[] {
   const e5Questions = QUESTION_BANK.filter((q) => q.difficulty === '5kyu');
   const e4Questions = QUESTION_BANK.filter((q) => q.difficulty === '4kyu');
   const longQuestions = QUESTION_BANK.filter((q) => q.difficulty === 'long');
-  const handwritingQuestions = QUESTION_BANK.filter((q) => q.type === 'handwriting');
+  const correctSentenceQuestions = QUESTION_BANK.filter((q) => q.type === 'correct_sentence');
   const matchingQuestions = QUESTION_BANK.filter((q) => q.type === 'matching');
 
   // Determine difficulty distribution based on stage
@@ -134,27 +132,27 @@ export function getStoryStageQuestions(stageNumber: number): Question[] {
     // Stage 1~30: Pure Eiken 5 basics
     poolA = e5Questions.filter((q) => q.type === 'translate' || q.type === 'blank');
     poolB = e5Questions.filter((q) => q.type === 'order' || q.type === 'blank');
-    poolC = [...handwritingQuestions, ...matchingQuestions, ...e5Questions];
+    poolC = [...correctSentenceQuestions, ...matchingQuestions, ...e5Questions];
   } else if (stageNumber <= 70) {
     // Stage 31~70: Eiken 5 full + starting Eiken 4
     poolA = e5Questions;
     poolB = e4Questions.length > 0 ? e4Questions : e5Questions;
-    poolC = [...handwritingQuestions, ...matchingQuestions, ...e5Questions];
+    poolC = [...correctSentenceQuestions, ...matchingQuestions, ...e5Questions];
   } else if (stageNumber <= 120) {
     // Stage 71~120: Eiken 4 core
     poolA = e4Questions;
     poolB = e4Questions.filter((q) => q.type === 'order' || q.type === 'dialogue');
-    poolC = [...longQuestions, ...handwritingQuestions, ...e4Questions];
+    poolC = [...longQuestions, ...correctSentenceQuestions, ...e4Questions];
   } else if (stageNumber <= 160) {
     // Stage 121~160: Eiken 4 advanced
     poolA = e4Questions;
     poolB = longQuestions.length > 0 ? longQuestions : e4Questions;
-    poolC = [...longQuestions, ...e4Questions, ...handwritingQuestions];
+    poolC = [...longQuestions, ...e4Questions, ...correctSentenceQuestions];
   } else {
-    // Stage 161~200: Eiken 4 to 3 master (long sentences, advanced dialogue, handwriting)
+    // Stage 161~200: Eiken 4 to 3 master (long sentences, advanced dialogue)
     poolA = longQuestions.length > 0 ? longQuestions : e4Questions;
     poolB = e4Questions;
-    poolC = [...longQuestions, ...handwritingQuestions, ...e4Questions];
+    poolC = [...longQuestions, ...correctSentenceQuestions, ...e4Questions];
   }
 
   // Ensure pools are non-empty

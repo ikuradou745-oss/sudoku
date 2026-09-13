@@ -427,7 +427,7 @@ export function StoryModeScreen({
                       3,000⚡️ ゲット！
                     </div>
                     <div className="text-[11px] font-bold text-[#777777]">
-                      称号「英検チャレンジャー」解禁
+                      英検5級 基礎編クリア報酬
                     </div>
                   </div>
                 </div>
@@ -450,7 +450,7 @@ export function StoryModeScreen({
                       7,500⚡️ ゲット！
                     </div>
                     <div className="text-[11px] font-bold text-[#777777]">
-                      称号「単語マスター」解禁
+                      英検4級 初級編突破報酬
                     </div>
                   </div>
                 </div>

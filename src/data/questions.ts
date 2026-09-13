@@ -1,5 +1,5 @@
 import { Question, Modifier } from '../types';
-import { HANDWRITING_QUESTIONS } from './handwritingQuestions';
+import { CORRECT_SENTENCE_QUESTIONS } from './correctSentenceQuestions';
 import { MORE_QUESTIONS } from './moreQuestions';
 
 const BASE_QUESTION_BANK: Question[] = [
@@ -824,8 +824,8 @@ const BASE_QUESTION_BANK: Question[] = [
 
 export const QUESTION_BANK: Question[] = [
   ...BASE_QUESTION_BANK,
-  ...HANDWRITING_QUESTIONS,
   ...MORE_QUESTIONS,
+  ...CORRECT_SENTENCE_QUESTIONS,
 ];
 
 export const DEFAULT_MODIFIERS: Modifier[] = [

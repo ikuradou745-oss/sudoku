@@ -3,27 +3,35 @@ import { Question } from '../types';
 // Fallback high-quality AI questions if network/offline
 const AI_FALLBACK_QUESTIONS: Question[] = [
   {
-    id: 'ai_fb_hw_01',
-    type: 'handwriting',
+    id: 'ai_fb_cs_01',
+    type: 'correct_sentence',
     difficulty: '5kyu',
-    japanese: '【AI問題】「嬉しい」を英語で書くと？',
-    english: 'happy',
-    correctAnswer: 'happy',
-    handwritingGuide: 'h _ _ _ _ (5文字)',
-    acceptableAnswers: ['happy', 'glad'],
-    explanation: '「嬉しい」「幸せな」は英語で happy です。感情を表す基本の単語ですね！',
+    japanese: '【AI生成】文が合ってるのはどれ？\n（意味: 私は犬を1匹飼っています。）',
+    english: 'I have a dog.',
+    choices: [
+      'I have a dog.',
+      'I have a dogs.',
+      'I habe a dog.',
+      'I have a dok.'
+    ],
+    correctAnswer: 'I have a dog.',
+    explanation: 'a（1つの）の後には単数形 dog が来ます。また「have」のスペルに注意しましょう。',
     isAiGenerated: true,
   },
   {
-    id: 'ai_fb_hw_02',
-    type: 'handwriting',
+    id: 'ai_fb_cs_02',
+    type: 'correct_sentence',
     difficulty: '5kyu',
-    japanese: '【AI問題】「本」を英語で書くと？',
-    english: 'book',
-    correctAnswer: 'book',
-    handwritingGuide: 'b _ _ _ (4文字)',
-    acceptableAnswers: ['book'],
-    explanation: '「本」は英語で book です。b-o-o-k と書きます！',
+    japanese: '【AI生成】文が合ってるのはどれ？\n（意味: 彼女は英語を上手に話します。）',
+    english: 'She speaks English well.',
+    choices: [
+      'She speaks English well.',
+      'She speak English well.',
+      'She speeks English well.',
+      'She speaks English goodly.'
+    ],
+    correctAnswer: 'She speaks English well.',
+    explanation: '主語が「She」なので動詞に三単現の s（speaks）がつき、「上手に」は副詞 well を使います。',
     isAiGenerated: true,
   },
   {

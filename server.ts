@@ -551,7 +551,7 @@ async function startServer() {
 小学生や中学生がワクワクするような、楽しくて身になるオリジナル英語クイズを1問だけ作成してください。
 
 形式は以下の5種類の中からランダムに1つ選んで作成してください：
-1. 'handwriting' (手書き英単語問題: 例「『嬉しい』を英語で書くと？」「『学校』を英語で書くと？」など身近な単語。handwritingGuideに'h _ _ _ _'のようなヒント、acceptableAnswersに別解配列)
+1. 'correct_sentence' (「文が合ってるのはどれ？」問題: 4つの選択肢の中に1つだけ文法・スペルが正しい文があり、残りの3つは微妙なスペルミスや3単現ミス、be動詞ミスなど巧妙な誤りになっている問題。japaneseには「文が合ってるのはどれ？\\n（意味: 〜）」、choicesに4つの文、correctAnswerに正しい文)
 2. 'matching' (点繋ぎ問題: 感情、日常動作、天気、動物、文房具などの英単語と、対応する絵文字や日本語を4組)
 3. 'blank' (空欄穴埋め選択問題: choicesに選択肢4つ、正解はランダムな位置)
 4. 'order' (語順並べ替え問題: wordOptionsに5〜6単語)
@@ -560,13 +560,13 @@ async function startServer() {
 必ず以下のJSON形式のみを返してください。Markdownコードブロックなどは付けず、純粋なJSONオブジェクトのみを出力してください：
 {
   "id": "ai_gen_${Date.now()}",
-  "type": "handwriting" | "matching" | "blank" | "order" | "translate",
+  "type": "correct_sentence" | "matching" | "blank" | "order" | "translate",
   "difficulty": "5kyu",
-  "japanese": "問題文（例: 「嬉しい」を英語で書くと？、または「〇〇を線で繋ごう！」など）",
-  "english": "模範解答の英文または単語 (例: happy)",
+  "japanese": "問題文（例: 「文が合ってるのはどれ？\\n（意味: 私は犬を飼っています。）」、または「〇〇を線で繋ごう！」など）",
+  "english": "模範解答の英文または単語 (例: I have a dog.)",
   "promptSentence": "空欄補充の場合の英文（例: I ____ my homework every day. 空欄は____）",
-  "choices": ["choice1", "choice2", "choice3", "choice4"],
-  "correctAnswer": "正解の文字列（handwritingならhappy、matchingなら'all'）",
+  "choices": ["I have a dog.", "I have a dogs.", "I habe a dog.", "I have a dok."],
+  "correctAnswer": "正解の文字列（例: I have a dog.、matchingなら'all'）",
   "wordOptions": ["word1", "word2", "word3", "word4", "word5"],
   "matchingPairs": [
     { "id": "p1", "left": "happy", "right": "☺️ うれしい" },
@@ -574,8 +574,6 @@ async function startServer() {
     { "id": "p3", "left": "good", "right": "👍 よい" },
     { "id": "p4", "left": "angry", "right": "😡 おこった" }
   ],
-  "handwritingGuide": "h _ _ _ _ (5文字)",
-  "acceptableAnswers": ["happy"],
   "explanation": "子供にもわかりやすい丁寧で明るい解説",
   "isAiGenerated": true
 }`;
