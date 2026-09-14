@@ -24,10 +24,10 @@ try {
     let html = fs.readFileSync(distHtmlPath, 'utf8');
     const timestamp = Date.now();
 
-    // Replace assets references with unique version query
+    // Replace assets references with unique version query, stripping any existing ?v query
     html = html
-      .replace(/(\.\/assets\/index\.js|\/assets\/index\.js)/g, `./assets/index.js?v=${timestamp}`)
-      .replace(/(\.\/assets\/index\.css|\/assets\/index\.css)/g, `./assets/index.css?v=${timestamp}`);
+      .replace(/(?:\.\/|\/)?assets\/index\.js(?:\?[^"'\s>]+)?/g, `./assets/index.js?v=${timestamp}`)
+      .replace(/(?:\.\/|\/)?assets\/index\.css(?:\?[^"'\s>]+)?/g, `./assets/index.css?v=${timestamp}`);
 
     fs.writeFileSync(distHtmlPath, html, 'utf8');
     fs.writeFileSync(path.join(distDir, '404.html'), html, 'utf8');

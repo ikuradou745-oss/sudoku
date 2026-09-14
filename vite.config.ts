@@ -24,11 +24,16 @@ function htmlEntryPlugin(): Plugin {
               '<script type="module" src="/src/main.tsx"></script>'
             );
         }
-        // Build mode: replace bundle script with source entry so Vite can compile it
-        return html.replace(
-          /<script type="module" crossorigin src="(\.\/assets\/index\.js[^"]*|\/assets\/index\.js[^"]*)"><\/script>/,
-          '<script type="module" src="/src/main.tsx"></script>'
-        );
+        // Build mode: replace bundle tags with source entry so Vite can compile cleanly
+        return html
+          .replace(
+            /<link rel="stylesheet" crossorigin href="(\.\/assets\/index\.css[^"]*|\/assets\/index\.css[^"]*)">/,
+            ''
+          )
+          .replace(
+            /<script type="module" crossorigin src="(\.\/assets\/index\.js[^"]*|\/assets\/index\.js[^"]*)"><\/script>/,
+            '<script type="module" src="/src/main.tsx"></script>'
+          );
       },
     },
   };
