@@ -6,8 +6,7 @@ import {
   AlertCircle, 
   Zap, 
   Bug, 
-  Lightbulb, 
-  Sparkles 
+  Lightbulb 
 } from 'lucide-react';
 import { UserStats, FeedbackType, FeedbackReport } from '../types';
 import { audio } from '../utils/audio';
@@ -42,21 +41,6 @@ export function FeedbackModal({
   const totalLimitToday = 2 + extraQuota;
   const remainingToday = Math.max(0, totalLimitToday - usedToday);
 
-  // Quick suggestion chips
-  const bugTemplates = [
-    '問題文の誤字・誤答があります',
-    '音声が再生されませんでした',
-    'ボタンを押しても反応しませんでした',
-    '画面の表示が崩れました',
-  ];
-
-  const featureTemplates = [
-    '英検準2級・3級の問題が欲しい！',
-    '間違えた単語の復習帳が欲しい！',
-    'もっと文房具グッズを増やしてほしい！',
-    'フレンド対戦機能が欲しい！',
-  ];
-
   const showNotification = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
     setTimeout(() => {
@@ -68,7 +52,7 @@ export function FeedbackModal({
   const handleBoostQuotaWithEnergy = () => {
     audio.playTap();
     if (currentUser.energy < 25) {
-      showNotification('error', `⚡️が足りません（必要: 25⚡️ / 現在: ${currentUser.energy}⚡️）。学習して⚡️を貯めましょう！`);
+      showNotification('error', `⚡️が足りません（必要: 25⚡️ / 現在: ${currentUser.energy}⚡️）。レッスンをクリアして⚡️を集めましょう！`);
       return;
     }
 
@@ -81,6 +65,12 @@ export function FeedbackModal({
     e.preventDefault();
     audio.playTap();
 
+    // If quota is exhausted, clicking this button triggers the 25 energy boost directly
+    if (remainingToday <= 0) {
+      handleBoostQuotaWithEnergy();
+      return;
+    }
+
     const trimmed = content.trim();
     if (!trimmed) {
       showNotification('error', '内容を入力してください。');
@@ -88,10 +78,6 @@ export function FeedbackModal({
     }
     if (trimmed.length > 100) {
       showNotification('error', '内容は100文字以内で入力してください。');
-      return;
-    }
-    if (remainingToday <= 0) {
-      showNotification('error', '本日の送信枠を使い切りました。25⚡️を使って枠を追加できます。');
       return;
     }
 
@@ -134,7 +120,7 @@ export function FeedbackModal({
       <div className="w-full max-w-lg bg-white rounded-3xl p-5 sm:p-6 shadow-2xl border-4 border-[#3C3C3C] my-auto flex flex-col relative max-h-[94vh] overflow-y-auto">
         
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b-2 border-[#E5E5E5] mb-4">
+        <div className="flex items-center justify-between pb-3 border-b-2 border-[#E5E5E5] mb-3">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-2xl bg-[#FFF9E6] border-2 border-[#FFD966] text-[#A57800] flex items-center justify-center text-xl shadow-xs shrink-0">
               📃
@@ -159,6 +145,49 @@ export function FeedbackModal({
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* 📅 Quota at the Top: 本日の残り回数を一番上に配置 */}
+        <div className="mb-3.5 p-3 bg-[#FFFDF0] border-2 border-[#FFE885] rounded-2xl flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-white border border-[#FFD966] flex items-center justify-center text-base shadow-2xs shrink-0">
+              📅
+            </div>
+            <div>
+              <div className="text-[11px] font-bold text-[#735A00]">
+                本日の残り送信回数
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-lg font-black font-mono leading-none ${
+                  remainingToday > 0 ? 'text-[#58CC02]' : 'text-[#FF4B4B]'
+                }`}>
+                  {remainingToday}
+                </span>
+                <span className="text-xs font-black text-[#888888] font-mono">
+                  / {totalLimitToday}回
+                </span>
+                {remainingToday === 0 && (
+                  <span className="text-[10px] font-black text-[#FF4B4B] bg-[#FFF0F0] px-1.5 py-0.5 rounded-md border border-[#FF4B4B]/30">
+                    使い切りました
+                  </span>
+                )}
+                {extraQuota > 0 && (
+                  <span className="text-[10px] font-bold text-[#1CB0F6] bg-[#EBF7FD] px-1.5 py-0.5 rounded-md border border-[#BDE3F8]">
+                    +{extraQuota}回追加済
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-[11px] font-bold text-[#A57800]">
+              1日2回まで無料
+            </div>
+            <div className="text-[10px] font-mono font-bold text-[#777777]">
+              所持: ⚡️{currentUser.energy}
+            </div>
+          </div>
         </div>
 
         {/* Notification Toast */}
@@ -259,69 +288,6 @@ export function FeedbackModal({
               </div>
             </div>
 
-            {/* Quota & 25⚡️ Boost Info Banner */}
-            <div className="p-3 bg-[#FFFDF0] border-2 border-[#FFE885] rounded-2xl space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-black text-[#735A00]">
-                  <span>📅 本日の残り送信回数:</span>
-                  <span className="text-sm font-black px-2 py-0.5 rounded-lg bg-white border border-[#FFD966] text-[#FF9600] font-mono">
-                    {remainingToday} / {totalLimitToday}回
-                  </span>
-                  {extraQuota > 0 && (
-                    <span className="text-[10px] font-bold text-[#58CC02] bg-white px-1.5 py-0.5 rounded-md border border-[#58CC02]">
-                      +{extraQuota}回追加済
-                    </span>
-                  )}
-                </div>
-
-                <div className="text-[11px] font-bold text-[#A57800]">
-                  1日2回まで無料
-                </div>
-              </div>
-
-              {/* 25⚡️ Boost Action */}
-              <div className="pt-2 border-t border-[#FFECA0] flex items-center justify-between flex-wrap gap-2">
-                <div className="text-[11px] font-bold text-[#735A00] flex items-center gap-1">
-                  <Zap className="w-3.5 h-3.5 text-[#FF9600]" />
-                  <span>25⚡️を使って送信枠を+1回追加できます</span>
-                  <span className="text-[10px] font-mono text-[#888888]">
-                    (所持: ⚡️{currentUser.energy})
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleBoostQuotaWithEnergy}
-                  className="px-3 py-1.5 rounded-xl bg-[#FF9600] hover:bg-[#E08500] border-b-2 border-[#C77400] text-white text-xs font-black cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-xs"
-                >
-                  <span>⚡️ 25⚡️で枠+1回追加</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Suggestions */}
-            <div>
-              <div className="flex items-center gap-1 text-[11px] font-bold text-[#777777] mb-1.5">
-                <Sparkles className="w-3 h-3 text-[#FF9600]" />
-                <span>よくあるテンプレート（タップで入力）:</span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {(selectedType === 'bug' ? bugTemplates : featureTemplates).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => {
-                      audio.playTap();
-                      setContent(t.slice(0, 100));
-                    }}
-                    className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-[#F7F7F7] hover:bg-[#EEEEEE] border border-[#E5E5E5] text-[#555555] cursor-pointer transition-all"
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Input Area (100 chars limit) */}
             <div>
               <div className="flex items-center justify-between mb-1">
@@ -345,8 +311,8 @@ export function FeedbackModal({
                 onChange={(e) => setContent(e.target.value)}
                 placeholder={
                   selectedType === 'bug'
-                    ? '例: レッスン2の問題で音声ボタンを押しても音が鳴りませんでした。（100文字以内）'
-                    : '例: 英検3級の問題や、単語帳モードを追加してほしいです！（100文字以内）'
+                    ? '不具合の内容を入力してください（100文字以内）'
+                    : '追加してほしい機能や単語、改善案を入力してください（100文字以内）'
                 }
                 rows={4}
                 className="w-full p-3 bg-[#F9F9F9] border-2 border-[#E5E5E5] focus:border-[#1CB0F6] rounded-2xl text-xs sm:text-sm font-bold text-[#3C3C3C] outline-hidden resize-none placeholder:text-[#AFAFAF]"
@@ -356,7 +322,7 @@ export function FeedbackModal({
               </p>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons: 2回送信後は「25⚡️で一回追加」に切り替え */}
             <div className="pt-2 flex gap-2">
               <button
                 type="button"
@@ -369,24 +335,38 @@ export function FeedbackModal({
                 キャンセル
               </button>
 
-              <button
-                id="submit-feedback-btn"
-                type="submit"
-                disabled={isSubmitting || !content.trim() || content.length > 100 || remainingToday <= 0}
-                className={`flex-2 py-3 rounded-2xl font-black text-xs sm:text-sm text-white flex items-center justify-center gap-1.5 transition-all ${
-                  isSubmitting || !content.trim() || content.length > 100 || remainingToday <= 0
-                    ? 'bg-[#CCCCCC] border-b-4 border-[#AAAAAA] cursor-not-allowed'
-                    : 'bg-[#58CC02] hover:bg-[#46A302] border-b-4 border-[#3D8C02] active:translate-y-1 active:border-b-0 cursor-pointer shadow-md'
-                }`}
-              >
-                <Send className="w-4 h-4" />
-                <span>{isSubmitting ? '送信中...' : '送信する (100文字以内)'}</span>
-              </button>
+              {remainingToday > 0 ? (
+                /* 通常の送信ボタン */
+                <button
+                  id="submit-feedback-btn"
+                  type="submit"
+                  disabled={isSubmitting || !content.trim() || content.length > 100}
+                  className={`flex-2 py-3 rounded-2xl font-black text-xs sm:text-sm text-white flex items-center justify-center gap-1.5 transition-all ${
+                    isSubmitting || !content.trim() || content.length > 100
+                      ? 'bg-[#CCCCCC] border-b-4 border-[#AAAAAA] cursor-not-allowed'
+                      : 'bg-[#58CC02] hover:bg-[#46A302] border-b-4 border-[#3D8C02] active:translate-y-1 active:border-b-0 cursor-pointer shadow-md'
+                  }`}
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isSubmitting ? '送信中...' : '送信する (100文字以内)'}</span>
+                </button>
+              ) : (
+                /* 2回送信済みの場合：25⚡️で一回追加ボタン */
+                <button
+                  id="boost-quota-btn"
+                  type="button"
+                  onClick={handleBoostQuotaWithEnergy}
+                  className="flex-2 py-3 rounded-2xl font-black text-xs sm:text-sm text-white flex items-center justify-center gap-1.5 transition-all bg-[#FF9600] hover:bg-[#E08500] border-b-4 border-[#C77400] active:translate-y-1 active:border-b-0 cursor-pointer shadow-md"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>⚡️ 25⚡️で1回追加</span>
+                </button>
+              )}
             </div>
 
             {remainingToday <= 0 && (
-              <p className="text-center text-xs font-black text-[#FF4B4B]">
-                ⚠️ 本日の無料送信枠（2回）を使い切りました。上の「25⚡️で枠追加」をご利用ください。
+              <p className="text-center text-xs font-black text-[#FF9600]">
+                💡 本日の送信枠を使い切りました。「⚡️ 25⚡️で1回追加」を押すと送信枠が+1回増えます。
               </p>
             )}
 
@@ -397,3 +377,4 @@ export function FeedbackModal({
     </div>
   );
 }
+
