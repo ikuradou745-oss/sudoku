@@ -16,12 +16,13 @@ import {
   deleteDoc,
   onSnapshot, 
   getDocFromServer,
+  getDocs,
   collection,
   query,
   where
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { UserStats, OnlineUserPresence, BanRouletteTriggerEvent, BanRecord } from '../types';
+import { UserStats, OnlineUserPresence, BanRouletteTriggerEvent, BanRecord, FeedbackReport } from '../types';
 
 export function getTodayDateString(now: Date = new Date()): string {
   const year = now.getFullYear();
@@ -457,6 +458,119 @@ export async function removeFirebaseBan(userId: string): Promise<void> {
     await deleteDoc(banRef);
   } catch (error) {
     console.warn('[Firebase Ban] Failed to remove ban on Firebase:', error);
+  }
+}
+
+// 8. Feedback & Bug Reports Management
+const LOCAL_FEEDBACK_KEY = 'uow_local_feedback_reports_v1';
+
+export async function saveFeedbackReport(report: FeedbackReport): Promise<void> {
+  // 1. Save to local storage cache immediately
+  try {
+    const localRaw = localStorage.getItem(LOCAL_FEEDBACK_KEY);
+    const list: FeedbackReport[] = localRaw ? JSON.parse(localRaw) : [];
+    localStorage.setItem(LOCAL_FEEDBACK_KEY, JSON.stringify([report, ...list.filter((r) => r.id !== report.id)].slice(0, 100)));
+  } catch (err) {
+    console.warn('[Feedback] local storage write failed:', err);
+  }
+
+  // 2. Save to Express server API
+  try {
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report }),
+    });
+  } catch (err) {
+    console.warn('[Feedback] server api post failed:', err);
+  }
+
+  // 3. Save to Firebase Firestore collection
+  try {
+    const reportRef = doc(db, 'feedback_reports', report.id);
+    await setDoc(reportRef, {
+      ...report,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('[Feedback] Firestore write failed:', err);
+  }
+}
+
+export async function fetchFeedbackReports(): Promise<FeedbackReport[]> {
+  const map = new Map<string, FeedbackReport>();
+
+  // 1. Try Express server API first (fast and consistent)
+  try {
+    const res = await fetch('/api/feedback');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.reports)) {
+        data.reports.forEach((r: FeedbackReport) => map.set(r.id, r));
+      }
+    }
+  } catch (err) {
+    console.warn('[Feedback] server api fetch failed:', err);
+  }
+
+  // 2. Also query Firestore collection to catch any reports
+  try {
+    const reportsCol = collection(db, 'feedback_reports');
+    const snap = await getDocs(reportsCol);
+    snap.forEach((docSnap) => {
+      const r = docSnap.data() as FeedbackReport;
+      if (r && r.id) {
+        map.set(r.id, r);
+      }
+    });
+  } catch (err) {
+    console.warn('[Feedback] Firestore fetch failed:', err);
+  }
+
+  // 3. Fallback to localStorage
+  try {
+    const localRaw = localStorage.getItem(LOCAL_FEEDBACK_KEY);
+    if (localRaw) {
+      const list: FeedbackReport[] = JSON.parse(localRaw);
+      list.forEach((r) => {
+        if (!map.has(r.id)) map.set(r.id, r);
+      });
+    }
+  } catch (err) {
+    console.warn('[Feedback] local storage read failed:', err);
+  }
+
+  // Return sorted newest first
+  return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteFeedbackReport(id: string): Promise<void> {
+  // 1. Local storage
+  try {
+    const localRaw = localStorage.getItem(LOCAL_FEEDBACK_KEY);
+    if (localRaw) {
+      const list: FeedbackReport[] = JSON.parse(localRaw);
+      localStorage.setItem(LOCAL_FEEDBACK_KEY, JSON.stringify(list.filter((r) => r.id !== id)));
+    }
+  } catch (err) {
+    console.warn('[Feedback] local storage delete failed:', err);
+  }
+
+  // 2. Server API
+  try {
+    await fetch(`/api/feedback/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  } catch (err) {
+    console.warn('[Feedback] server delete failed:', err);
+  }
+
+  // 3. Firestore
+  try {
+    const reportRef = doc(db, 'feedback_reports', id);
+    await deleteDoc(reportRef);
+  } catch (err) {
+    console.warn('[Feedback] Firestore delete failed:', err);
   }
 }
 

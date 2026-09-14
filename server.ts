@@ -530,12 +530,91 @@ async function startServer() {
   });
 
   // ==========================================
-  // Admin & BAN Roulette Endpoints
+  // Admin & Feedback / Bug Reports Endpoints
   // ==========================================
   const ADMIN_SALT_PREFIX = 'uow_admin_salt_';
   const ADMIN_SALT_SUFFIX = '_2026';
   const ADMIN_EXPECTED_HASH = '191527bb4da18539d86c9f6956b71fa0d44ec350a560ca49dc0f14889779f6f8';
   const activeBansMap = new Map<string, any>();
+
+  // Feedback and Bug Reports persistent storage
+  const FEEDBACK_FILE_PATH = path.join(process.cwd(), 'feedback_storage.json');
+  let feedbackReports: any[] = [];
+  try {
+    if (fs.existsSync(FEEDBACK_FILE_PATH)) {
+      const raw = fs.readFileSync(FEEDBACK_FILE_PATH, 'utf-8');
+      feedbackReports = JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn('Failed to load feedback reports cache:', err);
+    feedbackReports = [];
+  }
+
+  function persistFeedbackReports() {
+    try {
+      fs.writeFileSync(FEEDBACK_FILE_PATH, JSON.stringify(feedbackReports.slice(0, 500), null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('Failed to save feedback reports cache:', err);
+    }
+  }
+
+  // Submit Feedback / Bug Report (Max 100 characters)
+  app.post('/api/feedback', (req, res) => {
+    const { report } = req.body;
+    if (!report || typeof report !== 'object') {
+      return res.status(400).json({ error: 'report object is required' });
+    }
+
+    const content = String(report.content || '').trim();
+    if (!content) {
+      return res.status(400).json({ error: '内容を入力してください。' });
+    }
+    if (content.length > 100) {
+      return res.status(400).json({ error: '内容は100文字以内で入力してください。' });
+    }
+
+    const type = report.type === 'feature' ? 'feature' : 'bug';
+    const typeName = type === 'feature' ? '追加してほしい要素' : 'バグ報告';
+    const newReport = {
+      id: report.id || `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      userId: String(report.userId || 'anonymous'),
+      userName: String(report.userName || 'うおリンゴ会員').slice(0, 30),
+      type,
+      typeName,
+      content,
+      createdAt: Number(report.createdAt) || Date.now(),
+      formattedDate: report.formattedDate || new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+    };
+
+    // Prepend new report
+    feedbackReports = [newReport, ...feedbackReports.filter(r => r.id !== newReport.id)].slice(0, 500);
+    persistFeedbackReports();
+
+    // Broadcast in real-time
+    broadcastEvent({
+      type: 'NEW_FEEDBACK_REPORT',
+      report: newReport,
+    });
+
+    return res.json({ success: true, report: newReport });
+  });
+
+  // Get all Feedback / Bug Reports (for Admin)
+  app.get('/api/feedback', (req, res) => {
+    res.json({ reports: feedbackReports });
+  });
+
+  // Delete / Resolve Feedback Report (for Admin)
+  app.delete('/api/feedback/:id', (req, res) => {
+    const { id } = req.params;
+    feedbackReports = feedbackReports.filter(r => r.id !== id);
+    persistFeedbackReports();
+    broadcastEvent({
+      type: 'FEEDBACK_REPORT_DELETED',
+      id,
+    });
+    res.json({ success: true });
+  });
 
   app.post('/api/admin/verify', (req, res) => {
     const { code } = req.body;

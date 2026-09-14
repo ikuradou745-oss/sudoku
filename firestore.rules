@@ -95,6 +95,16 @@ service cloud.firestore {
       allow delete: if isValidId(userId);
     }
 
+    // User feedback, bug reports, and suggestions (strictly <= 100 characters)
+    match /feedback_reports/{reportId} {
+      allow read: if true;
+      allow create, update: if isValidId(reportId) &&
+        incoming().content is string && incoming().content.size() <= 100 &&
+        incoming().userName is string && incoming().userName.size() <= 32 &&
+        incoming().type in ['bug', 'feature'];
+      allow delete: if isValidId(reportId);
+    }
+
     // User profiles & stats collection
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId);

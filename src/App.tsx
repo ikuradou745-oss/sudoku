@@ -10,6 +10,7 @@ import { AdminAuthModal } from './components/AdminAuthModal';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { BanRouletteModal } from './components/BanRouletteModal';
 import { BannedScreen } from './components/BannedScreen';
+import { FeedbackModal } from './components/FeedbackModal';
 import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem, BanRecord, BanRouletteTriggerEvent } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
@@ -23,16 +24,15 @@ import { audio } from './utils/audio';
 import { fetchAiQuestion } from './utils/aiQuestionClient';
 import { 
   reportFirebasePresence, 
-  triggerFirebaseRoulette, 
   subscribeToFirebaseRoulette, 
-  subscribeToFirebaseUserBan 
+  subscribeToFirebaseUserBan,
+  getTodayDateString
 } from './utils/firebase';
 import { getStoryStageQuestions, STORY_MILESTONES } from './utils/storyStages';
 import { 
   isAdminAuthenticated, 
   checkAndEnforceReloadViolation, 
   subscribeToAdminRoulette, 
-  triggerRouletteLocal,
   clearBanInfo
 } from './utils/adminAuth';
 
@@ -48,6 +48,7 @@ export function App() {
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showCommunityModal, setShowCommunityModal] = useState<boolean>(false);
   const [showGoodsModal, setShowGoodsModal] = useState<boolean>(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
 
   // Admin & BAN states
   const [showAdminAuth, setShowAdminAuth] = useState<boolean>(false);
@@ -186,28 +187,6 @@ export function App() {
     setShowAdminPanel(true);
   };
 
-  const handleTriggerRoulette = async (event: BanRouletteTriggerEvent) => {
-    // 1. Trigger local BroadcastChannel
-    triggerRouletteLocal(event);
-
-    // 2. Broadcast to Firebase Firestore so all clients and devices receive it in real-time
-    triggerFirebaseRoulette(event).catch(console.warn);
-
-    // 3. Express server notification
-    try {
-      await fetch('/api/admin/roulette/trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event }),
-      });
-    } catch {
-      // Offline fallback
-    }
-
-    // 4. Always show the active roulette modal for the admin to watch / spin
-    setActiveRouletteEvent(event);
-  };
-
   // Update storage when stats change
   const updateStats = (updater: (prev: UserStats) => UserStats) => {
     setStats((prev) => {
@@ -215,6 +194,39 @@ export function App() {
       saveUserStats(next);
       reportFirebasePresence(next, true).catch(console.error);
       return next;
+    });
+  };
+
+  // Feedback 25⚡️ Boost Handler
+  const handleSpendEnergyForFeedback = (amount: number) => {
+    const todayKey = getTodayDateString();
+    updateStats((prev) => {
+      const isToday = prev.feedbackDate === todayKey;
+      const currentQuota = isToday ? (prev.extraFeedbackQuota || 0) : 0;
+      const currentCount = isToday ? (prev.feedbackCountToday || 0) : 0;
+      return {
+        ...prev,
+        energy: Math.max(0, prev.energy - amount),
+        feedbackDate: todayKey,
+        feedbackCountToday: currentCount,
+        extraFeedbackQuota: currentQuota + 1,
+      };
+    });
+  };
+
+  // Feedback Record Submitted Handler
+  const handleRecordFeedbackSubmit = () => {
+    const todayKey = getTodayDateString();
+    updateStats((prev) => {
+      const isToday = prev.feedbackDate === todayKey;
+      const currentCount = isToday ? (prev.feedbackCountToday || 0) : 0;
+      const currentExtra = isToday ? (prev.extraFeedbackQuota || 0) : 0;
+      return {
+        ...prev,
+        feedbackDate: todayKey,
+        feedbackCountToday: currentCount + 1,
+        extraFeedbackQuota: currentExtra,
+      };
     });
   };
 
@@ -429,6 +441,7 @@ export function App() {
             onStartDaily={handleStartDaily}
             onOpenCommunity={() => setShowCommunityModal(true)}
             onOpenGoods={() => setShowGoodsModal(true)}
+            onOpenFeedback={() => setShowFeedbackModal(true)}
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             onOpenAdmin={handleOpenAdmin}
@@ -513,11 +526,20 @@ export function App() {
             currentUserId={stats.userId || 'local_user'}
             currentUserName={stats.userName || 'うおリンゴ会員'}
             onClose={() => setShowAdminPanel(false)}
-            onTriggerRoulette={handleTriggerRoulette}
           />
         )}
 
-        {/* 🎲 Active BAN Roulette Modal */}
+        {/* 📃 Survey & Bug Report Modal */}
+        {showFeedbackModal && (
+          <FeedbackModal
+            currentUser={stats}
+            onSpendEnergy={handleSpendEnergyForFeedback}
+            onRecordFeedbackSubmit={handleRecordFeedbackSubmit}
+            onClose={() => setShowFeedbackModal(false)}
+          />
+        )}
+
+        {/* 🎲 Active BAN Roulette Modal (Legacy listener fallback) */}
         {activeRouletteEvent && (
           <BanRouletteModal
             event={activeRouletteEvent}

@@ -32,6 +32,7 @@ interface HomeScreenProps {
   onStartStory: () => void;
   onOpenCommunity: () => void;
   onOpenGoods: () => void;
+  onOpenFeedback: () => void;
   onToggleSound: () => void;
   onOpenProfile: () => void;
   onOpenAdmin: () => void;
@@ -45,6 +46,7 @@ export function HomeScreen({
   onStartStory,
   onOpenCommunity,
   onOpenGoods,
+  onOpenFeedback,
   onToggleSound,
   onOpenProfile,
   onOpenAdmin,
@@ -173,6 +175,20 @@ export function HomeScreen({
               <span className="w-2 h-2 rounded-full bg-[#58CC02] animate-pulse" />
               <span>{onlineCount}人</span>
             </span>
+          </button>
+
+          {/* 📃 アンケート/バグ報告 Button */}
+          <button
+            id="feedback-report-btn"
+            onClick={() => {
+              audio.playTap();
+              onOpenFeedback();
+            }}
+            className="h-10 px-2.5 rounded-2xl bg-[#FFFDF0] hover:bg-[#FFF9DB] border-2 border-[#FFE885] hover:border-[#FFD000] flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 text-[#735A00]"
+            title="📃 アンケート / バグ報告（1日2回まで送信可能）"
+          >
+            <span className="text-base leading-none">📃</span>
+            <span className="text-[11px] font-black hidden sm:inline">アンケート/報告</span>
           </button>
 
           {/* 🛡️ 管理者パネル Button */}

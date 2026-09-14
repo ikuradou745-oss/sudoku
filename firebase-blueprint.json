@@ -168,9 +168,29 @@
         "bannedByReload": { "type": "boolean" }
       },
       "required": ["id", "userId", "userName", "isPermanent", "bannedAt"]
+    },
+    "FeedbackReport": {
+      "title": "FeedbackReport",
+      "description": "Learner survey feedback, feature requests, and bug reports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "type": { "type": "string", "enum": ["bug", "feature"] },
+        "typeName": { "type": "string" },
+        "content": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "number" },
+        "formattedDate": { "type": "string" }
+      },
+      "required": ["id", "userId", "userName", "type", "content", "createdAt"]
     }
   },
   "firestore": {
+    "/feedback_reports/{reportId}": {
+      "schema": "FeedbackReport",
+      "description": "User bug reports and feature requests submitted via feedback modal"
+    },
     "/users/{userId}": {
       "schema": "User",
       "description": "Learner profile and synchronized game state"

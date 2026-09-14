@@ -87,6 +87,23 @@ export interface UserStats {
   // Rewards & Codes
   claimedBonusCodes?: string[];
   hasOpenedRewardModal?: boolean;
+  // Feedback & Bug Reports System
+  feedbackDate?: string; // e.g. "2026-09-14"
+  feedbackCountToday?: number; // submissions count today (max 2 free)
+  extraFeedbackQuota?: number; // extra slots added via 25⚡️
+}
+
+export type FeedbackType = 'bug' | 'feature';
+
+export interface FeedbackReport {
+  id: string;
+  userId: string;
+  userName: string;
+  type: FeedbackType;
+  typeName: string; // 'バグ報告' | '追加してほしい要素'
+  content: string; // strictly <= 100 chars
+  createdAt: number;
+  formattedDate: string; // e.g. "2026/09/14 18:30"
 }
 
 export type BanDurationType = 'permanent' | 'custom';
