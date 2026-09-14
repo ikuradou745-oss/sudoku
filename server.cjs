@@ -382,6 +382,69 @@ async function startServer() {
   const ADMIN_SALT_SUFFIX = "_2026";
   const ADMIN_EXPECTED_HASH = "191527bb4da18539d86c9f6956b71fa0d44ec350a560ca49dc0f14889779f6f8";
   const activeBansMap = /* @__PURE__ */ new Map();
+  const FEEDBACK_FILE_PATH = import_path.default.join(process.cwd(), "feedback_storage.json");
+  let feedbackReports = [];
+  try {
+    if (import_fs.default.existsSync(FEEDBACK_FILE_PATH)) {
+      const raw = import_fs.default.readFileSync(FEEDBACK_FILE_PATH, "utf-8");
+      feedbackReports = JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn("Failed to load feedback reports cache:", err);
+    feedbackReports = [];
+  }
+  function persistFeedbackReports() {
+    try {
+      import_fs.default.writeFileSync(FEEDBACK_FILE_PATH, JSON.stringify(feedbackReports.slice(0, 500), null, 2), "utf-8");
+    } catch (err) {
+      console.warn("Failed to save feedback reports cache:", err);
+    }
+  }
+  app.post("/api/feedback", (req, res) => {
+    const { report } = req.body;
+    if (!report || typeof report !== "object") {
+      return res.status(400).json({ error: "report object is required" });
+    }
+    const content = String(report.content || "").trim();
+    if (!content) {
+      return res.status(400).json({ error: "\u5185\u5BB9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002" });
+    }
+    if (content.length > 100) {
+      return res.status(400).json({ error: "\u5185\u5BB9\u306F100\u6587\u5B57\u4EE5\u5185\u3067\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002" });
+    }
+    const type = report.type === "feature" ? "feature" : "bug";
+    const typeName = type === "feature" ? "\u8FFD\u52A0\u3057\u3066\u307B\u3057\u3044\u8981\u7D20" : "\u30D0\u30B0\u5831\u544A";
+    const newReport = {
+      id: report.id || `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      userId: String(report.userId || "anonymous"),
+      userName: String(report.userName || "\u3046\u304A\u30EA\u30F3\u30B4\u4F1A\u54E1").slice(0, 30),
+      type,
+      typeName,
+      content,
+      createdAt: Number(report.createdAt) || Date.now(),
+      formattedDate: report.formattedDate || (/* @__PURE__ */ new Date()).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
+    };
+    feedbackReports = [newReport, ...feedbackReports.filter((r) => r.id !== newReport.id)].slice(0, 500);
+    persistFeedbackReports();
+    broadcastEvent({
+      type: "NEW_FEEDBACK_REPORT",
+      report: newReport
+    });
+    return res.json({ success: true, report: newReport });
+  });
+  app.get("/api/feedback", (req, res) => {
+    res.json({ reports: feedbackReports });
+  });
+  app.delete("/api/feedback/:id", (req, res) => {
+    const { id } = req.params;
+    feedbackReports = feedbackReports.filter((r) => r.id !== id);
+    persistFeedbackReports();
+    broadcastEvent({
+      type: "FEEDBACK_REPORT_DELETED",
+      id
+    });
+    res.json({ success: true });
+  });
   app.post("/api/admin/verify", (req, res) => {
     const { code } = req.body;
     const clean = String(code || "").trim().toLowerCase();
