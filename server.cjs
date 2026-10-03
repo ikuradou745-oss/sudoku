@@ -432,6 +432,62 @@ async function startServer() {
     });
     return res.json({ success: true, report: newReport });
   });
+  const RANKING_FILE_PATH = import_path.default.join(process.cwd(), "ranking_storage.json");
+  let top5Rankings = [];
+  try {
+    if (import_fs.default.existsSync(RANKING_FILE_PATH)) {
+      const raw = import_fs.default.readFileSync(RANKING_FILE_PATH, "utf-8");
+      top5Rankings = JSON.parse(raw);
+    }
+  } catch (err) {
+    top5Rankings = [];
+  }
+  if (!Array.isArray(top5Rankings) || top5Rankings.length === 0) {
+    top5Rankings = [
+      { id: "seed-1", userId: "seed_sakura", userName: "\u3055\u304F\u3089\u{1F338}", avatarUrl: null, score: 20, date: "2026-10-01", createdAt: Date.now() - 864e5 * 2 },
+      { id: "seed-2", userId: "seed_takeshi", userName: "\u305F\u3051\u3057\u26A1\uFE0F", avatarUrl: null, score: 15, date: "2026-10-01", createdAt: Date.now() - 864e5 },
+      { id: "seed-3", userId: "seed_yuuki", userName: "\u3086\u3046\u304D\u{1F431}", avatarUrl: null, score: 12, date: "2026-10-02", createdAt: Date.now() - 432e5 },
+      { id: "seed-4", userId: "seed_misaki", userName: "\u307F\u3055\u304D\u{1F31F}", avatarUrl: null, score: 9, date: "2026-10-02", createdAt: Date.now() - 216e5 },
+      { id: "seed-5", userId: "seed_kenta", userName: "\u3051\u3093\u305F\u{1F3AE}", avatarUrl: null, score: 6, date: "2026-10-03", createdAt: Date.now() - 36e5 }
+    ];
+  }
+  function persistRankings() {
+    try {
+      import_fs.default.writeFileSync(RANKING_FILE_PATH, JSON.stringify(top5Rankings.slice(0, 5), null, 2), "utf-8");
+    } catch (err) {
+      console.warn("Failed to save ranking cache:", err);
+    }
+  }
+  app.get("/api/ranking", (req, res) => {
+    res.json({ rankings: top5Rankings.slice(0, 5) });
+  });
+  app.post("/api/ranking", (req, res) => {
+    const { record } = req.body;
+    if (!record || typeof record.score !== "number") {
+      return res.status(400).json({ error: "valid record required" });
+    }
+    const previousTop = top5Rankings[0]?.score || 0;
+    const newEntry = {
+      id: record.id || `rank_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId: String(record.userId || "anon"),
+      userName: String(record.userName || "\u3046\u304A\u30EA\u30F3\u30B4\u4F1A\u54E1").slice(0, 30),
+      avatarUrl: record.avatarUrl || null,
+      score: Math.max(0, Math.floor(record.score)),
+      date: record.date || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      createdAt: Date.now()
+    };
+    const combined = [...top5Rankings, newEntry].sort((a, b) => b.score - a.score || a.createdAt - b.createdAt);
+    top5Rankings = combined.slice(0, 5);
+    persistRankings();
+    const rankIndex = top5Rankings.findIndex((r) => r.id === newEntry.id);
+    const rank = rankIndex !== -1 ? rankIndex + 1 : -1;
+    const isFirstPlace = rank === 1 || newEntry.score > previousTop;
+    broadcastEvent({
+      type: "RANKING_UPDATED",
+      rankings: top5Rankings
+    });
+    res.json({ success: true, rank, isFirstPlace, rankings: top5Rankings });
+  });
   app.get("/api/feedback", (req, res) => {
     res.json({ reports: feedbackReports });
   });
