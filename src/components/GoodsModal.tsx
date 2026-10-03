@@ -51,6 +51,12 @@ const GOODS_VISUALS: Record<string, { appearanceTitle: string; appearanceNote: s
     badgeColor: 'text-[#D97706] bg-[#FFFBEB] border-[#FDE68A]',
     bgGradient: 'from-[#FFFBEB] to-[#FEF3C7]',
   },
+  pencil_5000yen: {
+    appearanceTitle: '至高の黄金装飾・5000円鉛筆 💎✏️',
+    appearanceNote: 'ランキング1位を制覇した猛者のみが手にできる伝説の最高峰鉛筆。ダイヤモンドと純金が輝き、圧倒的な高精度で問題をサポート！',
+    badgeColor: 'text-[#B45309] bg-[#FFFBEB] border-[#FDE68A]',
+    bgGradient: 'from-[#FFFBEB] via-[#FFFDF5] to-[#ECFEFF]',
+  },
   pencil_sharpener: {
     appearanceTitle: '電動・高機能 鉛筆削り',
     appearanceNote: 'えんぴつと強力なシナジーを発揮する最高峰の文房具！芯を極限まで研ぎ澄ますことで、えんぴつの技が本来100%必要なところ、なんと半分の50%で発動できるようになる！',
@@ -150,7 +156,7 @@ export function GoodsModal({
           <div className="md:col-span-5 border-b-2 md:border-b-0 md:border-r-2 border-[#E5E5E5] bg-[#FAFAFA] p-3 sm:p-4 overflow-y-auto space-y-2.5">
             <div className="text-xs font-black text-[#777777] px-1 pb-1 flex items-center justify-between">
               <span>グッズ一覧</span>
-              <span className="text-[11px] text-[#AFAFAF]">全4種</span>
+              <span className="text-[11px] text-[#AFAFAF]">全{allGoods.length}種</span>
             </div>
 
             {allGoods.map((goods) => {
@@ -346,6 +352,11 @@ export function GoodsModal({
                   <span>{selectedGoods.icon}</span>
                   <span>このグッズを装備する</span>
                 </button>
+              ) : selectedGoods.id === 'pencil_5000yen' ? (
+                <div className="w-full py-3.5 px-4 rounded-2xl bg-[#FFFBEB] border-2 border-[#FDE68A] text-[#B45309] font-black text-xs sm:text-sm flex items-center justify-center gap-2 text-center">
+                  <Lock className="w-4 h-4 shrink-0 text-[#F59E0B]" />
+                  <span>🏆 ランキングモードで1位になると獲得！ (ショップ購入不可)</span>
+                </div>
               ) : selectedGoods.id === 'pencil_sharpener' ? (
                 <div className="w-full py-3.5 px-4 rounded-2xl bg-[#FFF1F2] border-2 border-[#FECACA] text-[#DC2626] font-black text-xs sm:text-sm flex items-center justify-center gap-2 text-center">
                   <Lock className="w-4 h-4 shrink-0" />

@@ -12,8 +12,11 @@ import { BanRouletteModal } from './components/BanRouletteModal';
 import { BannedScreen } from './components/BannedScreen';
 import { FeedbackModal } from './components/FeedbackModal';
 import { RecommendAppModal } from './components/RecommendAppModal';
+import { RankingModal } from './components/RankingModal';
 import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem, BanRecord, BanRouletteTriggerEvent } from './types';
 import { QUESTION_BANK } from './data/questions';
+import { MORE_QUESTIONS } from './data/moreQuestions';
+import { CORRECT_SENTENCE_QUESTIONS } from './data/correctSentenceQuestions';
 import { 
   getStoredUserStats, 
   saveUserStats, 
@@ -68,8 +71,11 @@ export function App() {
     }
   });
 
+  // Ranking Mode & Leaderboard Modal
+  const [showRankingModal, setShowRankingModal] = useState<boolean>(false);
+
   // Solo Quiz State
-  const [quizMode, setQuizMode] = useState<'practice' | 'daily' | 'story'>('practice');
+  const [quizMode, setQuizMode] = useState<'practice' | 'daily' | 'story' | 'ranking'>('practice');
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
   const [activeModifiers, setActiveModifiers] = useState<Modifier[]>([]);
   const [activeStoryStage, setActiveStoryStage] = useState<number>(1);
@@ -77,22 +83,23 @@ export function App() {
   // 1. Firebase Online Presence & Daily Login Heartbeat (No Google Login Required)
   useEffect(() => {
     // Initial report: user is online now and logged in today
-    reportFirebasePresence(stats, true).catch(console.error);
+    reportFirebasePresence(stats, true).catch(() => {});
 
-    // Heartbeat every 25 seconds while tab is active
+    // Heartbeat throttled to every 3 minutes (180s) to conserve free tier write units
     const heartbeatTimer = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        reportFirebasePresence(stats, true).catch(console.error);
+        reportFirebasePresence(stats, true).catch(() => {});
       }
-    }, 25000);
+    }, 180000);
 
     const handleVisibilityChange = () => {
-      const isVisible = document.visibilityState === 'visible';
-      reportFirebasePresence(stats, isVisible).catch(console.error);
+      if (document.visibilityState === 'visible') {
+        reportFirebasePresence(stats, true).catch(() => {});
+      }
     };
 
     const handleBeforeUnload = () => {
-      reportFirebasePresence(stats, false).catch(console.error);
+      reportFirebasePresence(stats, false).catch(() => {});
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -103,7 +110,7 @@ export function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [stats.userId, stats.userName, stats.avatarUrl, stats.rating, stats.rankTier]);
+  }, [stats.userId, stats.userName]);
 
   // Identify user with realtime service
   useEffect(() => {
@@ -204,7 +211,6 @@ export function App() {
     setStats((prev) => {
       const next = updater(prev);
       saveUserStats(next);
-      reportFirebasePresence(next, true).catch(console.error);
       return next;
     });
   };
@@ -450,6 +456,27 @@ export function App() {
     });
   };
 
+  const handleUnlockGoods = (goodsId: string) => {
+    updateStats((prev) => {
+      const unlocked = prev.unlockedGoods || ['pencil', 'eraser'];
+      if (unlocked.includes(goodsId)) return prev;
+      return {
+        ...prev,
+        unlockedGoods: [...unlocked, goodsId],
+        equippedMainGoods: goodsId === 'pencil_5000yen' ? ('pencil_5000yen' as MainGoodsId) : prev.equippedMainGoods,
+      };
+    });
+  };
+
+  const handleStartRankingSession = () => {
+    setShowRankingModal(false);
+    const all = [...QUESTION_BANK, ...MORE_QUESTIONS, ...CORRECT_SENTENCE_QUESTIONS].sort(() => Math.random() - 0.5);
+    setQuizQuestions(all);
+    setQuizMode('ranking');
+    setActiveModifiers([]);
+    setPhase('quiz');
+  };
+
   if (currentBan) {
     return (
       <BannedScreen
@@ -469,6 +496,7 @@ export function App() {
             onStartStory={() => setPhase('story')}
             onStartPractice={handleOpenPractice}
             onStartDaily={handleStartDaily}
+            onStartRanking={() => setShowRankingModal(true)}
             onOpenCommunity={() => setShowCommunityModal(true)}
             onOpenGoods={() => setShowGoodsModal(true)}
             onOpenFeedback={() => setShowFeedbackModal(true)}
@@ -503,6 +531,7 @@ export function App() {
             stats={stats}
             onFinish={handleQuizFinish}
             onExit={handleExitQuiz}
+            onUnlockGoods={handleUnlockGoods}
           />
         )}
 
@@ -576,6 +605,15 @@ export function App() {
             onClose={() => setShowRecommendModal(false)}
             onClaimBonus={handleClaimRecommendBonus}
             hasClaimedBonus={hasClaimedPromoBonus}
+          />
+        )}
+
+        {/* 🏆 Ranking Mode Hub & TOP 5 Leaderboard Modal */}
+        {showRankingModal && (
+          <RankingModal
+            stats={stats}
+            onStartRanking={handleStartRankingSession}
+            onClose={() => setShowRankingModal(false)}
           />
         )}
 

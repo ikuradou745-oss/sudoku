@@ -30,6 +30,7 @@ interface HomeScreenProps {
   onStartPractice: () => void;
   onStartDaily: () => void;
   onStartStory: () => void;
+  onStartRanking: () => void;
   onOpenCommunity: () => void;
   onOpenGoods: () => void;
   onOpenFeedback: () => void;
@@ -45,6 +46,7 @@ export function HomeScreen({
   onStartPractice,
   onStartDaily,
   onStartStory,
+  onStartRanking,
   onOpenCommunity,
   onOpenGoods,
   onOpenFeedback,
@@ -416,6 +418,41 @@ export function HomeScreen({
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-black bg-black/20 text-white px-2.5 py-1 rounded-full">
               Stage {stats.storyCurrentStage || 1}/200
+            </span>
+            <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
+          </div>
+        </button>
+
+        {/* 4. ランキングモード (赤・ゴールドの豪華ボタン) */}
+        <button
+          id="start-ranking-btn"
+          onClick={() => {
+            audio.playTap();
+            onStartRanking();
+          }}
+          className="duo-btn duo-btn-red w-full p-4.5 rounded-2xl flex items-center justify-between shadow-xs group cursor-pointer"
+        >
+          <div className="flex items-center gap-3.5 text-left">
+            <div className="w-11 h-11 rounded-xl bg-black/15 flex items-center justify-center text-white shrink-0 text-2xl">
+              🏆
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-black text-white">
+                  ランキングモード
+                </span>
+                <span className="text-[10px] font-black bg-white text-[#EA580C] px-2 py-0.5 rounded-full shadow-2xs">
+                  全国TOP5 / ライフ1
+                </span>
+              </div>
+              <div className="text-xs font-bold text-white/95 mt-0.5">
+                ひたすら解いて記録に挑戦！1位で「5000円鉛筆」獲得
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-black bg-black/20 text-white px-2.5 py-1 rounded-full flex items-center gap-1">
+              <span>💎✏️ 報酬</span>
             </span>
             <ArrowRight className="w-4 h-4 text-white transform group-hover:translate-x-1 transition-transform" />
           </div>

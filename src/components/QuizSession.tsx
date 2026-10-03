@@ -9,14 +9,17 @@ import {
   RotateCcw,
   ArrowRight,
   Tv,
-  Flame
+  Flame,
+  Crown
 } from 'lucide-react';
-import { Question, Modifier, UserStats } from '../types';
+import { Question, Modifier, UserStats, RankingRecord } from '../types';
 import { 
   calculateNextDailyStreak, 
   getDailyStreakMultiplier, 
   calculateDailyReward 
 } from '../utils/storage';
+import { submitRankingScore } from '../utils/ranking';
+import { QUESTION_BANK } from '../data/questions';
 import { audio } from '../utils/audio';
 import { AdModal } from './AdModal';
 import { GoodsHUD } from './GoodsHUD';
@@ -24,7 +27,7 @@ import { PencilHintCard, MarkerOverlay, RulerGuideCard } from './GoodsVisualEffe
 import { DotConnectQuiz } from './DotConnectQuiz';
 
 interface QuizSessionProps {
-  mode: 'practice' | 'daily' | 'story';
+  mode: 'practice' | 'daily' | 'story' | 'ranking';
   storyStage?: number;
   questions: Question[];
   modifiers?: Modifier[];
@@ -35,8 +38,10 @@ interface QuizSessionProps {
     perfect: boolean;
     mistakes: number;
     streak?: number;
+    rankingScore?: number;
   }) => void;
   onExit: () => void;
+  onUnlockGoods?: (goodsId: string) => void;
 }
 
 export function QuizSession({
@@ -47,12 +52,14 @@ export function QuizSession({
   stats,
   onFinish,
   onExit,
+  onUnlockGoods,
 }: QuizSessionProps) {
   const isHardcore = modifiers.some((m) => m.id === 'hardcore' && m.active);
   const isTimeLimit = modifiers.some((m) => m.id === 'timeLimit' && m.active);
 
+  const [sessionQuestions, setSessionQuestions] = useState<Question[]>(questions);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [lives, setLives] = useState<number>(mode === 'story' || isHardcore ? 1 : 3);
+  const [lives, setLives] = useState<number>(mode === 'story' || mode === 'ranking' || isHardcore ? 1 : 3);
   const [mistakes, setMistakes] = useState<number>(0);
   const [hasUsedRevive, setHasUsedRevive] = useState<boolean>(false);
   const [showAdModal, setShowAdModal] = useState<boolean>(false);
@@ -81,9 +88,19 @@ export function QuizSession({
   const [markerUsed, setMarkerUsed] = useState<boolean>(false);
   const [showMarkerOverlay, setShowMarkerOverlay] = useState<boolean>(false);
   const [pencilActive, setPencilActive] = useState<boolean>(false);
+  const [precisionPencilActive, setPrecisionPencilActive] = useState<boolean>(false);
+  const [struckOutChoices, setStruckOutChoices] = useState<string[]>([]);
+  const [autoConnectPair, setAutoConnectPair] = useState<{ topId: string; bottomId: string } | null>(null);
   const [eraserActive, setEraserActive] = useState<boolean>(false);
   const [hiddenChoices, setHiddenChoices] = useState<string[]>([]);
   const [shuffledChoices, setShuffledChoices] = useState<string[]>([]);
+  // Ranking Mode Result state
+  const [rankingResult, setRankingResult] = useState<{
+    rank: number;
+    isFirstPlace: boolean;
+    rankings: RankingRecord[];
+  } | null>(null);
+
   // Random question index for ruler (e.g. index 1 or 2)
   const [rulerTargetIndex] = useState<number>(() => {
     if (questions.length <= 1) return 0;
@@ -91,7 +108,7 @@ export function QuizSession({
   });
   const [rulerTriggered, setRulerTriggered] = useState<boolean>(false);
 
-  const currentQ = questions[currentIndex];
+  const currentQ = sessionQuestions[currentIndex];
   const isRulerActiveCurrentQ = equippedSub === 'ruler' && currentIndex === rulerTargetIndex;
 
   // Initialize question state
@@ -103,6 +120,9 @@ export function QuizSession({
     setIsCorrect(null);
     setTimeLeft(15);
     setPencilActive(false);
+    setPrecisionPencilActive(false);
+    setStruckOutChoices([]);
+    setAutoConnectPair(null);
     setEraserActive(false);
     setHiddenChoices([]);
 
@@ -139,6 +159,48 @@ export function QuizSession({
     audio.playTap();
     setPencilActive(true);
     setMainCharge((prev) => Math.max(0, prev - threshold));
+  };
+
+  // Activate 5000円鉛筆 Skill: 「高精度鉛筆」
+  const handleActivatePrecisionPencil = () => {
+    const threshold = equippedSub === 'pencil_sharpener' ? 50 : 100;
+    if (mainCharge < threshold || precisionPencilActive || !currentQ) return;
+    audio.playTap();
+    setPrecisionPencilActive(true);
+    setPencilActive(true); // also shows pencil hint effect
+    setMainCharge((prev) => Math.max(0, prev - threshold));
+
+    if (currentQ.type === 'order') {
+      // 文を作る問題では残り2つの状態にしてくれます
+      const correctWords = currentQ.english.split(' ');
+      const total = correctWords.length;
+      const targetPreFill = Math.max(1, total - 2);
+      const autoWords = correctWords.slice(0, targetPreFill);
+      setSelectedWords(autoWords);
+
+      let tempAvail = [...(currentQ.wordOptions || [])];
+      for (const w of autoWords) {
+        const foundIdx = tempAvail.indexOf(w);
+        if (foundIdx !== -1) {
+          tempAvail.splice(foundIdx, 1);
+        }
+      }
+      setAvailableWords(tempAvail);
+    } else if (currentQ.type === 'matching') {
+      // 天繋ぎでは一つ繋いでくれる
+      if (currentQ.matchingPairs && currentQ.matchingPairs.length > 0) {
+        const firstPair = currentQ.matchingPairs[0];
+        setAutoConnectPair({ topId: firstPair.id, bottomId: firstPair.id });
+      }
+    } else {
+      // 間違えている問題を1つ鉛筆でバツを描いてくれます
+      const choices = shuffledChoices.length > 0 ? shuffledChoices : (currentQ.choices || []);
+      const wrong = choices.filter((c) => c !== currentQ.correctAnswer && !struckOutChoices.includes(c));
+      if (wrong.length > 0) {
+        const pickedWrong = wrong[Math.floor(Math.random() * wrong.length)];
+        setStruckOutChoices((prev) => [...prev, pickedWrong]);
+      }
+    }
   };
 
   // Activate Eraser Skill (50:50 or Auto Fill Half)
@@ -186,6 +248,8 @@ export function QuizSession({
       // Charge equipped stationery
       if (equippedMain === 'pencil') {
         setMainCharge((prev) => Math.min(100, prev + 25));
+      } else if (equippedMain === 'pencil_5000yen') {
+        setMainCharge((prev) => Math.min(100, prev + 20));
       }
       if (equippedSub === 'eraser') {
         setSubCharge((prev) => Math.min(100, prev + 25));
@@ -225,11 +289,44 @@ export function QuizSession({
     setLives(nextLives);
 
     if (nextLives <= 0) {
+      if (mode === 'ranking') {
+        const finalScore = currentIndex;
+        submitRankingScore({
+          userId: stats?.userId || 'guest_user',
+          userName: stats?.userName || 'うおwりんご会員',
+          avatarUrl: stats?.avatarUrl,
+          score: finalScore,
+        }).then((res) => {
+          setRankingResult(res);
+          if (res.isFirstPlace || res.rank === 1) {
+            audio.playEnergyGet();
+            onUnlockGoods?.('pencil_5000yen');
+          }
+        });
+      }
       setTimeout(() => {
         setIsGameOver(true);
       }, 1000);
     }
-  }, [lives]);
+  }, [lives, mode, currentIndex, stats, onUnlockGoods]);
+
+  // Restart ranking session
+  const handleRestartRanking = () => {
+    setLives(1);
+    setMistakes(0);
+    setCurrentIndex(0);
+    setIsGameOver(false);
+    setIsCleared(false);
+    setRankingResult(null);
+    setMainCharge(0);
+    setSubCharge(0);
+    setPencilActive(false);
+    setPrecisionPencilActive(false);
+    setStruckOutChoices([]);
+    setAutoConnectPair(null);
+    const shuffled = [...QUESTION_BANK].sort(() => Math.random() - 0.5);
+    setSessionQuestions(shuffled);
+  };
 
   // Countdown timer for timeLimit modifier
   useEffect(() => {
@@ -287,9 +384,11 @@ export function QuizSession({
       setIsCorrect(true);
       setIsAnswerChecked(true);
 
-      // Charge equipped goods by 25% per correct answer
+      // Charge equipped goods by 25% for regular pencil, or 20% for 5000円鉛筆
       if (equippedMain === 'pencil') {
         setMainCharge((prev) => Math.min(100, prev + 25));
+      } else if (equippedMain === 'pencil_5000yen') {
+        setMainCharge((prev) => Math.min(100, prev + 20));
       }
       if (equippedSub === 'eraser') {
         setSubCharge((prev) => Math.min(100, prev + 25));
@@ -314,7 +413,12 @@ export function QuizSession({
   // Next question or complete session
   const handleNext = () => {
     audio.playTap();
-    if (currentIndex + 1 < questions.length) {
+    if (currentIndex + 1 < sessionQuestions.length) {
+      setCurrentIndex((prev) => prev + 1);
+    } else if (mode === 'ranking') {
+      // In ranking mode, questions are truly endless!
+      const more = [...QUESTION_BANK].sort(() => Math.random() - 0.5);
+      setSessionQuestions((prev) => [...prev, ...more]);
       setCurrentIndex((prev) => prev + 1);
     } else {
       // Completed all questions!
@@ -542,6 +646,131 @@ export function QuizSession({
 
   // Game Over Modal overlay
   if (isGameOver) {
+    if (mode === 'ranking') {
+      return (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+          <div 
+            id="ranking-game-over-card"
+            className="duo-card w-full max-w-md p-6 sm:p-7 bg-white text-center shadow-2xl border-4 border-[#FFD966] my-auto"
+          >
+            {/* Header Icon */}
+            <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-[#FFF9E6] to-[#FFF0D4] border-2 border-[#FFD966] flex items-center justify-center text-3xl shadow-xs">
+              {rankingResult?.rank === 1 ? '👑' : '🏆'}
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFF9E6] border border-[#FFD966] text-[#A57800] text-xs font-black mb-2 shadow-2xs">
+              <span>ランキング挑戦終了</span>
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-black text-[#3C3C3C] mb-1">
+              今回の記録
+            </h2>
+
+            {/* Score Highlight */}
+            <div className="p-4 bg-gradient-to-r from-[#FFF5EB] to-[#FFFDF9] border-2 border-[#FED7AA] rounded-2xl mb-4 shadow-xs">
+              <div className="flex items-center justify-center gap-2">
+                <Flame className="w-7 h-7 text-[#F97316] fill-[#F97316] animate-bounce" />
+                <span className="text-4xl font-black text-[#EA580C] font-mono">
+                  {currentIndex}
+                </span>
+                <span className="text-base font-black text-[#777777]">問連続正解！</span>
+              </div>
+            </div>
+
+            {/* 1st Place Achievement Special Reward Banner */}
+            {rankingResult?.rank === 1 ? (
+              <div className="p-4 bg-gradient-to-r from-[#FFFBEB] via-[#FFFDF5] to-[#ECFEFF] border-2 border-[#F59E0B] rounded-2xl mb-4 text-left shadow-md animate-pulse">
+                <div className="flex items-center gap-2 text-sm font-black text-[#B45309] mb-1">
+                  <span>🎉 祝・全国ランキング1位達成！</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FFD966] to-[#F59E0B] flex items-center justify-center text-2xl shadow-xs">
+                    💎✏️
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-[#3C3C3C]">
+                      報酬グッズ「5000円鉛筆」を獲得！
+                    </div>
+                    <div className="text-[11px] font-bold text-[#78350F] leading-tight mt-0.5">
+                      グッズ画面から装備可能！1文ごとに+20%チャージ＆必殺技「高精度鉛筆」（不正解❌消去・点繋ぎ接続・並べ替え残り2つ）が使えます！
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : rankingResult && rankingResult.rank > 1 && rankingResult.rank <= 5 ? (
+              <div className="p-3 bg-[#EEFDEB] border-2 border-[#86EFAC] rounded-2xl mb-4 text-xs font-black text-[#15803D]">
+                🎖️ お見事！全国TOP5（第{rankingResult.rank}位）にランクインしました！
+              </div>
+            ) : (
+              <div className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-2xl mb-4 text-xs font-bold text-[#777777]">
+                💪 惜しくもTOP5入りならず！さらなる記録を目指して再挑戦しよう！
+              </div>
+            )}
+
+            {/* Leaderboard TOP 5 Table */}
+            {rankingResult?.rankings && rankingResult.rankings.length > 0 && (
+              <div className="space-y-1.5 mb-5 text-left">
+                <div className="text-[11px] font-black text-[#777777] flex items-center justify-between px-1">
+                  <span>順位 / プレイヤー</span>
+                  <span>記録</span>
+                </div>
+                {rankingResult.rankings.slice(0, 5).map((r, idx) => {
+                  const isFirst = idx === 0;
+                  const isCurrentSessionUser = r.userId === stats?.userId;
+                  return (
+                    <div 
+                      key={r.id || idx}
+                      className={`flex items-center justify-between p-2 rounded-xl border text-xs font-bold ${
+                        isFirst 
+                          ? 'bg-[#FFFBEB] border-[#FFD966] text-[#78350F]' 
+                          : 'bg-[#F9FAFB] border-[#E5E5E5] text-[#3C3C3C]'
+                      } ${isCurrentSessionUser ? 'ring-2 ring-[#58CC02]' : ''}`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="font-black">
+                          {idx === 0 ? '🥇 1位' : idx === 1 ? '🥈 2位' : idx === 2 ? '🥉 3位' : `${idx + 1}位`}
+                        </span>
+                        <span className="truncate">{r.userName}</span>
+                        {isCurrentSessionUser && <span className="text-[9px] text-[#58CC02]">(あなた)</span>}
+                      </div>
+                      <span className="font-mono font-black shrink-0 text-[#EA580C]">
+                        {r.score} 問
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="space-y-2.5">
+              <button
+                onClick={() => {
+                  audio.playTap();
+                  handleRestartRanking();
+                }}
+                className="duo-btn duo-btn-red w-full h-12 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <Crown className="w-5 h-5 text-white" />
+                <span>もう一度挑戦する (ライフ1)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  audio.playTap();
+                  onExit();
+                }}
+                className="duo-btn duo-btn-gray w-full h-11 rounded-2xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4 text-[#AFAFAF]" />
+                <span>ホームに戻る</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
         {showAdModal && (
@@ -573,10 +802,10 @@ export function QuizSession({
                   audio.playTap();
                   setShowAdModal(true);
                 }}
-                className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-base font-black flex items-center justify-center gap-2"
+                className="duo-btn duo-btn-green w-full h-13 rounded-2xl text-base font-black flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Tv className="w-5 h-5" />
-                <span>広告を見てライフ1で復活 (1回のみ)</span>
+                <span>広告（ティックエディション）を見てライフ3で復活 (1回のみ)</span>
               </button>
             ) : (
               <div className="p-3 bg-[#F7F7F7] rounded-xl text-xs font-bold text-[#AFAFAF]">
@@ -590,7 +819,7 @@ export function QuizSession({
                 audio.playTap();
                 onExit();
               }}
-              className="duo-btn duo-btn-gray w-full h-12 rounded-2xl text-sm font-black flex items-center justify-center gap-2"
+              className="duo-btn duo-btn-gray w-full h-12 rounded-2xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer"
             >
               <RotateCcw className="w-4 h-4 text-[#AFAFAF]" />
               <span>ホームに戻る</span>
@@ -666,8 +895,10 @@ export function QuizSession({
           rulerTriggered={rulerTriggered}
           rulerActiveOnQuestion={isRulerActiveCurrentQ}
           pencilActive={pencilActive}
+          precisionPencilActive={precisionPencilActive}
           eraserActive={eraserActive}
           onActivatePencil={handleActivatePencil}
+          onActivatePrecisionPencil={handleActivatePrecisionPencil}
           onActivateEraser={handleActivateEraser}
         />
       </div>
@@ -759,6 +990,7 @@ export function QuizSession({
             isCorrect={isCorrect}
             onCheckAnswer={handleMatchingResult}
             disabled={isGameOver || isCleared}
+            autoConnectPair={autoConnectPair}
           />
         )}
 
@@ -807,6 +1039,7 @@ export function QuizSession({
             {shuffledChoices.map((choice, idx) => {
               const isSelected = selectedAnswer === choice;
               const isHidden = hiddenChoices.includes(choice);
+              const isStruckOut = struckOutChoices.includes(choice);
 
               if (isHidden) {
                 return (
@@ -817,6 +1050,27 @@ export function QuizSession({
                     <span className="line-through">{choice}</span>
                     <span className="text-[10px] bg-[#E5E5E5] text-[#777777] px-2 py-0.5 rounded-md font-black">
                       消しゴムで消去
+                    </span>
+                  </div>
+                );
+              }
+
+              if (isStruckOut) {
+                return (
+                  <div
+                    key={idx}
+                    className="relative p-4 rounded-2xl border-2 border-red-300 bg-red-50/70 flex items-center justify-between text-sm font-bold text-red-500 select-none overflow-hidden"
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-full h-1 bg-red-500/80 rotate-[-5deg] shadow-xs" />
+                    </div>
+                    <span className="line-through flex items-center gap-1.5 z-10 text-red-700/80 font-mono-code text-sm sm:text-base">
+                      <span>❌</span>
+                      <span>{choice}</span>
+                    </span>
+                    <span className="text-[10px] bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-md font-black z-10 flex items-center gap-1">
+                      <span>✏️</span>
+                      <span>高精度鉛筆で消去</span>
                     </span>
                   </div>
                 );

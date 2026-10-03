@@ -20,6 +20,16 @@ export const MAIN_GOODS: Record<MainGoodsId, GoodsItem> = {
     description: '3,500⚡️で購入できるミス無効化マーカー！',
     abilityDetail: 'レッスン・試合中1度だけ、ミスをしてもマーカーペンでその問題を落書きして無効化！ライフを失わずにもう一度同じ問題に再挑戦できます。',
   },
+  pencil_5000yen: {
+    id: 'pencil_5000yen',
+    type: 'main',
+    name: '5000円鉛筆',
+    icon: '💎✏️',
+    price: 0,
+    chargePercentPerCorrect: 20,
+    description: 'ランキング1位達成で獲得できる超高級プレミアム鉛筆！',
+    abilityDetail: '普通の鉛筆の能力に加え、一文ごとに20%チャージ！100%になると必殺技「高精度鉛筆」が発動可能！間違えている選択肢を1つ鉛筆のバツ印❌で消去。点繋ぎでは1ペアを自動接続。文を作る並べ替え問題では残り2つの状態まで自動配置してくれます！',
+  },
 };
 
 export const SUB_GOODS: Record<SubGoodsId, GoodsItem> = {

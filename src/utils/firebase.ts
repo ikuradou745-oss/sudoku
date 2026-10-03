@@ -39,10 +39,44 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 // 2. Validate Connection to Firestore (Skill Mandatory Requirement)
+// Firestore Quota Management & Circuit Breaker
+let firestoreQuotaExhausted = false;
+let quotaExhaustedTimestamp = 0;
+const QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour cooldown before re-testing writes
+
+export function isFirestoreQuotaExhausted(): boolean {
+  if (firestoreQuotaExhausted && Date.now() - quotaExhaustedTimestamp > QUOTA_COOLDOWN_MS) {
+    firestoreQuotaExhausted = false; // Reset cooldown to test if quota has reset
+  }
+  return firestoreQuotaExhausted;
+}
+
+export function checkAndSetQuotaError(error: unknown): boolean {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const errCode = (error as { code?: string })?.code;
+  if (
+    errCode === 'resource-exhausted' ||
+    errMsg.includes('resource-exhausted') ||
+    errMsg.includes('Quota limit exceeded') ||
+    errMsg.includes('Free daily write units')
+  ) {
+    if (!firestoreQuotaExhausted) {
+      firestoreQuotaExhausted = true;
+      quotaExhaustedTimestamp = Date.now();
+      console.warn(
+        '[Firestore Quota Notice] Free daily write quota reached (20,000 writes/day). Firestore writes are temporarily paused until quota resets next day. Local storage & Server WebSockets are actively handling state.'
+      );
+    }
+    return true;
+  }
+  return false;
+}
+
 export async function testConnection(): Promise<void> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
+    checkAndSetQuotaError(error);
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error('Please check your Firebase configuration.');
     }
@@ -126,6 +160,7 @@ export async function logoutUser(): Promise<void> {
 export async function syncUserStatsToFirestore(stats: UserStats, isNewUser = false): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) return;
+  if (isFirestoreQuotaExhausted()) return;
 
   const targetPath = `users/${currentUser.uid}`;
   const now = new Date().toISOString();
@@ -142,8 +177,8 @@ export async function syncUserStatsToFirestore(stats: UserStats, isNewUser = fal
     perfectSessions: Math.max(0, stats.perfectSessions ?? 0),
     rating: Math.max(0, stats.rating ?? 0),
     rankTier: stats.rankTier || 'bronze',
-    equippedMainGoods: stats.equippedMainGoods === 'marker' ? 'marker' : 'pencil',
-    equippedSubGoods: stats.equippedSubGoods === 'ruler' ? 'ruler' : stats.equippedSubGoods === 'hat' ? 'hat' : 'eraser',
+    equippedMainGoods: stats.equippedMainGoods || 'pencil',
+    equippedSubGoods: stats.equippedSubGoods || 'eraser',
     unlockedGoods: stats.unlockedGoods?.slice(0, 20) || ['pencil', 'eraser'],
     lastActive: Date.now(),
     isOnline: true,
@@ -164,6 +199,10 @@ export async function syncUserStatsToFirestore(stats: UserStats, isNewUser = fal
       await updateDoc(userDocRef, payload);
     }
   } catch (error) {
+    if (checkAndSetQuotaError(error)) {
+      console.warn('[Firestore] Quota reached, local state retained safely.');
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, targetPath);
   }
 }
@@ -276,8 +315,19 @@ export interface FirebasePresenceRecord {
   updatedAt: string;
 }
 
+let lastPresenceWriteTime = 0;
+const MIN_PRESENCE_INTERVAL_MS = 180_000; // Throttle to at most once per 3 minutes (180s)
+
 export async function reportFirebasePresence(stats: UserStats, isOnline = true): Promise<void> {
   if (!stats.userId) return;
+  if (isFirestoreQuotaExhausted()) return;
+
+  const now = Date.now();
+  // Don't hammer Firestore: throttle presence writes
+  if (now - lastPresenceWriteTime < MIN_PRESENCE_INTERVAL_MS) {
+    return;
+  }
+
   const targetPath = `presence/${stats.userId}`;
   try {
     const presenceRef = doc(db, 'presence', stats.userId);
@@ -288,13 +338,15 @@ export async function reportFirebasePresence(stats: UserStats, isOnline = true):
       avatarUrl: stats.avatarUrl || null,
       rating: typeof stats.rating === 'number' ? stats.rating : 0,
       rankTier: stats.rankTier || 'bronze',
-      lastActive: Date.now(),
+      lastActive: now,
       lastLoginDate: todayStr,
       isOnline,
       updatedAt: new Date().toISOString(),
     };
+    lastPresenceWriteTime = now;
     await setDoc(presenceRef, payload, { merge: true });
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn(`[Firebase Presence] could not sync presence to ${targetPath}:`, error);
   }
 }
@@ -350,10 +402,12 @@ export function subscribeToFirebasePresence(
         callback(onlineList, todayList);
       },
       (error) => {
+        checkAndSetQuotaError(error);
         console.warn(`[Firebase Presence] subscription notice on ${targetPath}:`, error);
       }
     );
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn('[Firebase Presence] subscription failed:', error);
     return () => {};
   }
@@ -361,6 +415,7 @@ export function subscribeToFirebasePresence(
 
 // 7. Firebase BAN Roulette and Real-time Ban Synchronization
 export async function triggerFirebaseRoulette(event: BanRouletteTriggerEvent): Promise<void> {
+  if (isFirestoreQuotaExhausted()) return;
   try {
     const rouletteRef = doc(db, 'roulette_events', 'current');
     await setDoc(rouletteRef, {
@@ -368,6 +423,7 @@ export async function triggerFirebaseRoulette(event: BanRouletteTriggerEvent): P
       createdAt: Date.now(),
     });
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn('[Firebase Roulette] Failed to trigger roulette on Firebase:', error);
   }
 }
@@ -393,10 +449,12 @@ export function subscribeToFirebaseRoulette(
         }
       },
       (error) => {
+        checkAndSetQuotaError(error);
         console.warn('[Firebase Roulette] Subscription notice:', error);
       }
     );
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn('[Firebase Roulette] Subscription failed:', error);
     return () => {};
   }
@@ -404,6 +462,7 @@ export function subscribeToFirebaseRoulette(
 
 export async function recordFirebaseBan(ban: BanRecord): Promise<void> {
   if (!ban.userId) return;
+  if (isFirestoreQuotaExhausted()) return;
   try {
     const banRef = doc(db, 'bans', ban.userId);
     await setDoc(banRef, {
@@ -411,6 +470,7 @@ export async function recordFirebaseBan(ban: BanRecord): Promise<void> {
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn('[Firebase Ban] Failed to record ban on Firebase:', error);
   }
 }
@@ -442,10 +502,12 @@ export function subscribeToFirebaseUserBan(
         onBan(data);
       },
       (error) => {
+        checkAndSetQuotaError(error);
         console.warn('[Firebase Ban] Subscription notice:', error);
       }
     );
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn('[Firebase Ban] Subscription failed:', error);
     return () => {};
   }
@@ -453,10 +515,12 @@ export function subscribeToFirebaseUserBan(
 
 export async function removeFirebaseBan(userId: string): Promise<void> {
   if (!userId) return;
+  if (isFirestoreQuotaExhausted()) return;
   try {
     const banRef = doc(db, 'bans', userId);
     await deleteDoc(banRef);
   } catch (error) {
+    checkAndSetQuotaError(error);
     console.warn('[Firebase Ban] Failed to remove ban on Firebase:', error);
   }
 }
@@ -485,15 +549,18 @@ export async function saveFeedbackReport(report: FeedbackReport): Promise<void> 
     console.warn('[Feedback] server api post failed:', err);
   }
 
-  // 3. Save to Firebase Firestore collection
-  try {
-    const reportRef = doc(db, 'feedback_reports', report.id);
-    await setDoc(reportRef, {
-      ...report,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.warn('[Feedback] Firestore write failed:', err);
+  // 3. Save to Firebase Firestore collection (skip if quota exhausted)
+  if (!isFirestoreQuotaExhausted()) {
+    try {
+      const reportRef = doc(db, 'feedback_reports', report.id);
+      await setDoc(reportRef, {
+        ...report,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      checkAndSetQuotaError(err);
+      console.warn('[Feedback] Firestore write failed:', err);
+    }
   }
 }
 
@@ -566,11 +633,14 @@ export async function deleteFeedbackReport(id: string): Promise<void> {
   }
 
   // 3. Firestore
-  try {
-    const reportRef = doc(db, 'feedback_reports', id);
-    await deleteDoc(reportRef);
-  } catch (err) {
-    console.warn('[Feedback] Firestore delete failed:', err);
+  if (!isFirestoreQuotaExhausted()) {
+    try {
+      const reportRef = doc(db, 'feedback_reports', id);
+      await deleteDoc(reportRef);
+    } catch (err) {
+      checkAndSetQuotaError(err);
+      console.warn('[Feedback] Firestore delete failed:', err);
+    }
   }
 }
 

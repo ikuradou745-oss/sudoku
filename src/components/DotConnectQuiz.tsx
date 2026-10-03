@@ -9,6 +9,7 @@ interface DotConnectQuizProps {
   isCorrect?: boolean | null;
   onCheckAnswer: (allCorrect: boolean) => void;
   disabled?: boolean;
+  autoConnectPair?: { topId: string; bottomId: string } | null;
 }
 
 const PAIR_COLORS = [
@@ -24,6 +25,7 @@ export function DotConnectQuiz({
   isAnswerChecked,
   onCheckAnswer,
   disabled = false,
+  autoConnectPair = null,
 }: DotConnectQuizProps) {
   // Top items (left)
   const [topItems, setTopItems] = useState<MatchingPair[]>([]);
@@ -58,6 +60,17 @@ export function DotConnectQuiz({
     setSelectedTopId(null);
     setSelectedBottomId(null);
   }, [matchingPairs]);
+
+  // Auto connect 1 pair when triggered by 5000円鉛筆
+  useEffect(() => {
+    if (autoConnectPair && !connections[autoConnectPair.topId]) {
+      setConnections((prev) => ({
+        ...prev,
+        [autoConnectPair.topId]: autoConnectPair.bottomId,
+      }));
+      audio.playTap();
+    }
+  }, [autoConnectPair]);
 
   // Recalculate line coordinates when connections or layout changes
   const updateLinePositions = () => {

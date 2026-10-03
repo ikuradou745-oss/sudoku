@@ -599,6 +599,74 @@ async function startServer() {
     return res.json({ success: true, report: newReport });
   });
 
+  // ==========================================
+  // Ranking Mode Leaderboard (TOP 5)
+  // ==========================================
+  const RANKING_FILE_PATH = path.join(process.cwd(), 'ranking_storage.json');
+  let top5Rankings: any[] = [];
+  try {
+    if (fs.existsSync(RANKING_FILE_PATH)) {
+      const raw = fs.readFileSync(RANKING_FILE_PATH, 'utf-8');
+      top5Rankings = JSON.parse(raw);
+    }
+  } catch (err) {
+    top5Rankings = [];
+  }
+  if (!Array.isArray(top5Rankings) || top5Rankings.length === 0) {
+    top5Rankings = [
+      { id: 'seed-1', userId: 'seed_sakura', userName: 'さくら🌸', avatarUrl: null, score: 20, date: '2026-10-01', createdAt: Date.now() - 86400000 * 2 },
+      { id: 'seed-2', userId: 'seed_takeshi', userName: 'たけし⚡️', avatarUrl: null, score: 15, date: '2026-10-01', createdAt: Date.now() - 86400000 },
+      { id: 'seed-3', userId: 'seed_yuuki', userName: 'ゆうき🐱', avatarUrl: null, score: 12, date: '2026-10-02', createdAt: Date.now() - 43200000 },
+      { id: 'seed-4', userId: 'seed_misaki', userName: 'みさき🌟', avatarUrl: null, score: 9, date: '2026-10-02', createdAt: Date.now() - 21600000 },
+      { id: 'seed-5', userId: 'seed_kenta', userName: 'けんた🎮', avatarUrl: null, score: 6, date: '2026-10-03', createdAt: Date.now() - 3600000 },
+    ];
+  }
+
+  function persistRankings() {
+    try {
+      fs.writeFileSync(RANKING_FILE_PATH, JSON.stringify(top5Rankings.slice(0, 5), null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('Failed to save ranking cache:', err);
+    }
+  }
+
+  app.get('/api/ranking', (req, res) => {
+    res.json({ rankings: top5Rankings.slice(0, 5) });
+  });
+
+  app.post('/api/ranking', (req, res) => {
+    const { record } = req.body;
+    if (!record || typeof record.score !== 'number') {
+      return res.status(400).json({ error: 'valid record required' });
+    }
+
+    const previousTop = top5Rankings[0]?.score || 0;
+    const newEntry = {
+      id: record.id || `rank_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      userId: String(record.userId || 'anon'),
+      userName: String(record.userName || 'うおリンゴ会員').slice(0, 30),
+      avatarUrl: record.avatarUrl || null,
+      score: Math.max(0, Math.floor(record.score)),
+      date: record.date || new Date().toISOString().slice(0, 10),
+      createdAt: Date.now(),
+    };
+
+    const combined = [...top5Rankings, newEntry].sort((a, b) => b.score - a.score || a.createdAt - b.createdAt);
+    top5Rankings = combined.slice(0, 5);
+    persistRankings();
+
+    const rankIndex = top5Rankings.findIndex((r) => r.id === newEntry.id);
+    const rank = rankIndex !== -1 ? rankIndex + 1 : -1;
+    const isFirstPlace = rank === 1 || newEntry.score > previousTop;
+
+    broadcastEvent({
+      type: 'RANKING_UPDATED',
+      rankings: top5Rankings,
+    });
+
+    res.json({ success: true, rank, isFirstPlace, rankings: top5Rankings });
+  });
+
   // Get all Feedback / Bug Reports (for Admin)
   app.get('/api/feedback', (req, res) => {
     res.json({ reports: feedbackReports });

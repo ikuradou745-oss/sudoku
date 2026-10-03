@@ -41,8 +41,18 @@ export interface Modifier {
 
 export type RankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'heaven';
 
-export type MainGoodsId = 'pencil' | 'marker';
+export type MainGoodsId = 'pencil' | 'marker' | 'pencil_5000yen';
 export type SubGoodsId = 'eraser' | 'ruler' | 'hat' | 'pencil_sharpener';
+
+export interface RankingRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  avatarUrl?: string | null;
+  score: number; // 連続正解数
+  date: string;
+  createdAt: number;
+}
 
 export interface GoodsItem {
   id: MainGoodsId | SubGoodsId;

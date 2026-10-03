@@ -5,14 +5,16 @@ import { MAIN_GOODS, SUB_GOODS } from '../utils/goods';
 interface GoodsHUDProps {
   equippedMain: MainGoodsId;
   equippedSub: SubGoodsId;
-  mainCharge: number; // 0, 25, 50, 75, 100
-  subCharge: number;  // 0, 25, 50, 75, 100
+  mainCharge: number; // 0 ~ 100
+  subCharge: number;  // 0 ~ 100
   markerUsed: boolean;
   rulerTriggered: boolean;
   rulerActiveOnQuestion: boolean;
   pencilActive: boolean;
+  precisionPencilActive?: boolean;
   eraserActive: boolean;
   onActivatePencil: () => void;
+  onActivatePrecisionPencil?: () => void;
   onActivateEraser: () => void;
 }
 
@@ -25,19 +27,24 @@ export function GoodsHUD({
   rulerTriggered,
   rulerActiveOnQuestion,
   pencilActive,
+  precisionPencilActive = false,
   eraserActive,
   onActivatePencil,
+  onActivatePrecisionPencil,
   onActivateEraser,
 }: GoodsHUDProps) {
   const main = MAIN_GOODS[equippedMain] || MAIN_GOODS.pencil;
   const sub = SUB_GOODS[equippedSub] || SUB_GOODS.eraser;
   const pencilThreshold = equippedSub === 'pencil_sharpener' ? 50 : 100;
+  const is5000Pencil = equippedMain === 'pencil_5000yen';
 
   return (
     <div className="w-full bg-white/95 backdrop-blur-xs border-2 border-[#E5E5E5] rounded-2xl p-2.5 shadow-xs mb-3">
       <div className="grid grid-cols-2 gap-2">
         {/* Main Goods Slot */}
-        <div className="flex items-center justify-between p-2 rounded-xl bg-[#F7F7F7] border border-[#E5E5E5]">
+        <div className={`flex items-center justify-between p-2 rounded-xl border ${
+          is5000Pencil ? 'bg-gradient-to-r from-[#FFFBEB] to-[#FFFDF5] border-[#FFD966]' : 'bg-[#F7F7F7] border-[#E5E5E5]'
+        }`}>
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl shrink-0">{main.icon}</span>
             <div className="min-w-0">
@@ -45,18 +52,22 @@ export function GoodsHUD({
                 <span className="text-xs font-black text-[#3C3C3C] truncate">
                   {main.name}
                 </span>
-                <span className="text-[9px] font-bold text-[#1CB0F6] bg-[#EBF7FD] px-1 py-0.2 rounded shrink-0">
+                <span className={`text-[9px] font-bold px-1 py-0.2 rounded shrink-0 ${
+                  is5000Pencil ? 'text-[#B45309] bg-[#FEF3C7]' : 'text-[#1CB0F6] bg-[#EBF7FD]'
+                }`}>
                   メイン
                 </span>
               </div>
 
-              {equippedMain === 'pencil' ? (
+              {equippedMain === 'pencil' || is5000Pencil ? (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   {/* Gauge Bar */}
                   <div className="w-14 h-2 bg-[#E5E5E5] rounded-full overflow-hidden shrink-0">
                     <div 
                       className={`h-full transition-all duration-300 ${
-                        mainCharge >= pencilThreshold ? 'bg-[#58CC02] animate-pulse' : 'bg-[#1CB0F6]'
+                        mainCharge >= pencilThreshold 
+                          ? is5000Pencil ? 'bg-[#FF9600] animate-pulse' : 'bg-[#58CC02] animate-pulse' 
+                          : is5000Pencil ? 'bg-[#F59E0B]' : 'bg-[#1CB0F6]'
                       }`}
                       style={{ width: `${mainCharge}%` }}
                     />
@@ -77,7 +88,33 @@ export function GoodsHUD({
             </div>
           </div>
 
-          {/* Action Trigger for Pencil */}
+          {/* Action Trigger for 5000円鉛筆 (高精度鉛筆) */}
+          {is5000Pencil && (
+            <div>
+              {precisionPencilActive ? (
+                <span className="text-[9px] font-black text-[#B45309] bg-[#FFFBEB] px-2 py-1 rounded-lg border border-[#FDE68A] flex items-center gap-0.5">
+                  <Check className="w-3 h-3 stroke-[3]" />
+                  発動済
+                </span>
+              ) : mainCharge >= pencilThreshold ? (
+                <button
+                  type="button"
+                  onClick={onActivatePrecisionPencil}
+                  className="duo-btn duo-btn-yellow py-1 px-2 rounded-xl text-[10px] font-black flex items-center gap-0.5 animate-bounce cursor-pointer shadow-xs whitespace-nowrap"
+                  title="高精度鉛筆を発動！(間違えた選択肢を❌消去・点繋ぎ接続・並べ替え残り2つ)"
+                >
+                  <Sparkles className="w-3 h-3 text-white" />
+                  <span>高精度鉛筆!</span>
+                </button>
+              ) : (
+                <span className="text-[9px] font-bold text-[#AFAFAF] bg-[#EEEEEE] px-1.5 py-0.5 rounded whitespace-nowrap">
+                  {equippedSub === 'pencil_sharpener' ? '50%で発動' : '+20%/問 (MAX)'}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Action Trigger for Standard Pencil */}
           {equippedMain === 'pencil' && (
             <div>
               {pencilActive ? (
