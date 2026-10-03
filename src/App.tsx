@@ -11,6 +11,7 @@ import { AdminPanelModal } from './components/AdminPanelModal';
 import { BanRouletteModal } from './components/BanRouletteModal';
 import { BannedScreen } from './components/BannedScreen';
 import { FeedbackModal } from './components/FeedbackModal';
+import { RecommendAppModal } from './components/RecommendAppModal';
 import { UserStats, Modifier, Question, MainGoodsId, SubGoodsId, GoodsItem, BanRecord, BanRouletteTriggerEvent } from './types';
 import { QUESTION_BANK } from './data/questions';
 import { 
@@ -55,6 +56,17 @@ export function App() {
   const [showAdminPanel, setShowAdminPanel] = useState<boolean>(false);
   const [activeRouletteEvent, setActiveRouletteEvent] = useState<BanRouletteTriggerEvent | null>(null);
   const [currentBan, setCurrentBan] = useState<BanRecord | null>(null);
+
+  // Recommended App Modal (毎回起動時に表示)
+  const [showRecommendModal, setShowRecommendModal] = useState<boolean>(true);
+  const [hasClaimedPromoBonus, setHasClaimedPromoBonus] = useState<boolean>(() => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      return localStorage.getItem('uolingo_tick_edition_bonus_1000') === today;
+    } catch {
+      return false;
+    }
+  });
 
   // Solo Quiz State
   const [quizMode, setQuizMode] = useState<'practice' | 'daily' | 'story'>('practice');
@@ -236,6 +248,24 @@ export function App() {
       audio.soundEnabled = next;
       return next;
     });
+  };
+
+  // Bonus reward for trying the recommended Tick Edition tool (1000⚡️)
+  const handleClaimRecommendBonus = () => {
+    if (hasClaimedPromoBonus) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      localStorage.setItem('uolingo_tick_edition_bonus_1000', today);
+    } catch {
+      // ignore
+    }
+    setHasClaimedPromoBonus(true);
+    audio.playLevelComplete();
+    audio.playEnergyGet();
+    updateStats((prev) => ({
+      ...prev,
+      energy: prev.energy + 1000,
+    }));
   };
 
   // 1. Open Practice Mode -> Show Modifier Modal
@@ -445,6 +475,7 @@ export function App() {
             onToggleSound={handleToggleSound}
             onOpenProfile={() => setShowProfileModal(true)}
             onOpenAdmin={handleOpenAdmin}
+            onOpenRecommend={() => setShowRecommendModal(true)}
             soundEnabled={soundEnabled}
           />
         )}
@@ -536,6 +567,15 @@ export function App() {
             onSpendEnergy={handleSpendEnergyForFeedback}
             onRecordFeedbackSubmit={handleRecordFeedbackSubmit}
             onClose={() => setShowFeedbackModal(false)}
+          />
+        )}
+
+        {/* 📰 Recommended App Diffusion Modal (毎回起動時に表示) */}
+        {showRecommendModal && (
+          <RecommendAppModal
+            onClose={() => setShowRecommendModal(false)}
+            onClaimBonus={handleClaimRecommendBonus}
+            hasClaimedBonus={hasClaimedPromoBonus}
           />
         )}
 

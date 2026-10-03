@@ -36,6 +36,7 @@ interface HomeScreenProps {
   onToggleSound: () => void;
   onOpenProfile: () => void;
   onOpenAdmin: () => void;
+  onOpenRecommend: () => void;
   soundEnabled: boolean;
 }
 
@@ -50,6 +51,7 @@ export function HomeScreen({
   onToggleSound,
   onOpenProfile,
   onOpenAdmin,
+  onOpenRecommend,
   soundEnabled,
 }: HomeScreenProps) {
   const [dailyDone, setDailyDone] = useState<boolean>(false);
@@ -177,6 +179,20 @@ export function HomeScreen({
             </span>
           </button>
 
+          {/* 🎬 おすすめ教材＆1000⚡️ Button */}
+          <button
+            id="recommend-promo-btn"
+            onClick={() => {
+              audio.playTap();
+              onOpenRecommend();
+            }}
+            className="h-10 px-2.5 rounded-2xl bg-[#FFF5EB] hover:bg-[#FFE8CC] border-2 border-[#FED7AA] hover:border-[#F97316] flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 text-[#C2410C]"
+            title="🎬 これもやって欲しいです。（ティックエディション・1000⚡️ゲット！）"
+          >
+            <span className="text-base leading-none">🎬</span>
+            <span className="text-[11px] font-black hidden sm:inline">1000⚡️もらえる</span>
+          </button>
+
           {/* 📃 アンケート/バグ報告 Button */}
           <button
             id="feedback-report-btn"
@@ -208,7 +224,7 @@ export function HomeScreen({
       </header>
 
       {/* App Branding & User Rank Overview */}
-      <div className="text-center mb-6">
+      <div className="text-center mb-5">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF7FD] border border-[#BDE3F8] text-[#1CB0F6] text-xs font-black mb-3">
           <Sparkles className="w-3.5 h-3.5" />
           <span>英語学習 (英検4〜5級・並べ替え)</span>
@@ -235,6 +251,42 @@ export function HomeScreen({
           </span>
           <span className="text-[11px] font-mono font-black text-[#1CB0F6] bg-[#EBF7FD] px-2 py-0.5 rounded-md">
             {stats.rating || 0} RP
+          </span>
+        </div>
+      </div>
+
+      {/* 🎬 おすすめ教材バナー: これもやって欲しいです。 */}
+      <div 
+        onClick={() => {
+          audio.playTap();
+          onOpenRecommend();
+        }}
+        className="mb-4 p-3.5 bg-gradient-to-r from-[#FFFBEB] via-[#FFFDF5] to-[#ECFEFF] border-2 border-[#FFD966] hover:border-[#1CB0F6] rounded-2xl shadow-xs flex items-center justify-between gap-3 cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] group"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1CB0F6] to-[#0284C7] text-white flex items-center justify-center text-xl shrink-0 shadow-2xs group-hover:rotate-6 transition-transform">
+            🎬
+          </div>
+          <div className="min-w-0 text-left">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-black bg-[#58CC02] text-white px-2 py-0.5 rounded-full shadow-2xs">
+                教材
+              </span>
+              <span className="text-[10px] font-black bg-[#FF9600] text-white px-2 py-0.5 rounded-full shadow-2xs animate-pulse">
+                やってくれたら1000⚡️！
+              </span>
+              <span className="text-xs font-black text-[#3C3C3C]">
+                これもやって欲しいです。
+              </span>
+            </div>
+            <div className="text-[11px] font-bold text-[#0284C7] truncate mt-0.5">
+              ティックエディション（コマで動画・プログラムでゲーム作り）
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="duo-btn duo-btn-green py-1.5 px-3 rounded-xl text-xs font-black shadow-2xs whitespace-nowrap">
+            遊ぶ・1000⚡️ ↗
           </span>
         </div>
       </div>
